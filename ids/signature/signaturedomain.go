@@ -1,4 +1,4 @@
-package domains
+package signature
 
 import "github.com/distributed-vision/go-resources/ids"
 

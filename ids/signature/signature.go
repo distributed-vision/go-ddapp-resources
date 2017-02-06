@@ -1,23 +1,24 @@
-package identifiers
+package signature
 
 import (
 	"github.com/distributed-vision/go-resources/ids"
+	"github.com/distributed-vision/go-resources/ids/identifier"
 	"github.com/distributed-vision/go-resources/resolvers/signatureResolver"
 )
 
 type signature struct {
-	*identifier
+	ids.Identifier
 	elements ids.SignatureElements
 }
 
 func NewSignature(domain ids.SignatureDomain, id []byte) (ids.Signature, error) {
-	base, err := NewIdentifier(domain, id)
+	base, err := identifier.NewIdentifier(domain, id)
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &signature{base.(*identifier), nil}, nil
+	return &signature{base, nil}, nil
 }
 
 func (this *signature) Elements() (ids.SignatureElements, error) {

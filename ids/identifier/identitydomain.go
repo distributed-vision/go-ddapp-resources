@@ -1,18 +1,26 @@
-package domains
+package identifier
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"time"
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/ids"
-	"github.com/distributed-vision/go-resources/ids/identifiers"
-	"github.com/distributed-vision/go-resources/resolvers/mappingResolver"
+	"github.com/distributed-vision/go-resources/ids/domain"
+	"github.com/distributed-vision/go-resources/ids/domainType"
+	"github.com/distributed-vision/go-resources/ids/mappings"
+	"github.com/distributed-vision/go-resources/version"
+	"github.com/distributed-vision/go-resources/version/versionType"
 )
 
+func init() {
+	domain.RegisterJSONUnmarshaller(domainType.IDENTITY, unmarshalJSON)
+}
+
 type identityDomain struct {
-	*domain
+	ids.Domain
 	idGenerator             ids.IdGenerator
 	sequenceLeaseHolderId   ids.Identifier
 	nextSequenceLeaseExpiry *time.Time
@@ -20,25 +28,35 @@ type identityDomain struct {
 	sequenceIncarnation     *uint32
 }
 
-func (scope *identityDomain) NewIdentityDomainFromJSON(json map[string]interface{}, opts map[string]interface{}) (ids.IdentityDomain, error) {
-	id, err := base62.Decode(json["id"].(string))
+func unmarshalJSON(json map[string]interface{}, opts map[string]interface{}) (ids.Domain, error) {
+	rootId, err := base62.Decode(json["id"].(string))
 
 	if err != nil {
 		return nil, err
 	}
 
-	return &identityDomain{&domain{scope: opts["scope"].(ids.DomainScope), id: id, info: json}, nil, nil, nil, nil, nil}, nil
+	var incarnation uint32
+	var crcLength uint
+	var versionType = versionType.UNVERSIONED
+
+	info := make(map[interface{}]interface{})
+
+	for key, value := range json {
+		info[key] = value
+	}
+
+	return NewIdentityDomain(opts["scope"].(ids.DomainScope), rootId, &incarnation, crcLength, versionType, info)
 }
 
-func NewIdentityDomain(scope ids.DomainScope, rootId []byte, incarnation *uint32, crcLength uint, info map[string]interface{}) (ids.IdentityDomain, error) {
-	base, err := NewDomain(scope, rootId, incarnation, crcLength, info)
+func NewIdentityDomain(scope ids.DomainScope, rootId []byte, incarnation *uint32, crcLength uint, versionType versionType.VersionType, info map[interface{}]interface{}) (ids.IdentityDomain, error) {
+	base, err := domain.NewDomain(scope, rootId, incarnation, crcLength, versionType, info)
 
 	if err != nil {
 		return nil, err
 	}
 
 	return &identityDomain{
-		domain: base.(*domain)}, nil
+		Domain: base}, nil
 }
 
 func (this *identityDomain) NewIdentifier() (ids.Identifier, error) {
@@ -49,18 +67,19 @@ func (this *identityDomain) NewIdentifier() (ids.Identifier, error) {
 			return nil, err
 		}
 
-		return this.ToId(id)
+		var nilVersion version.Version
+		return this.ToId(id, nilVersion)
 	}
 
 	return nil, errors.New("Id creation not initialized")
 }
 
-func (this *identityDomain) ToId(id []byte) (ids.Identifier, error) {
-	return identifiers.NewIdentifier(this, id)
+func (this *identityDomain) ToId(id []byte, ver version.Version) (ids.Identifier, error) {
+	return New(this, id, ver)
 }
 
 func (this *identityDomain) GetMapping(from ids.Identifier, asof *time.Time) (ids.Identifier, error) {
-	mchan, echan := this.ResolveMapping(from, asof)
+	mchan, echan := this.ResolveMapping(context.Background(), from, asof)
 
 	select {
 	case mapping := <-mchan:
@@ -70,21 +89,21 @@ func (this *identityDomain) GetMapping(from ids.Identifier, asof *time.Time) (id
 	}
 }
 
-func (this *identityDomain) ResolveMapping(from ids.Identifier, asof *time.Time) (chan ids.Identifier, chan error) {
-	return mappingResolver.ResolveMapping(from, this, *asof)
+func (this *identityDomain) ResolveMapping(resolutionContext context.Context, from ids.Identifier, asof *time.Time) (chan ids.Identifier, chan error) {
+	return mappings.Resolve(resolutionContext, mappings.Selector{From: from, To: this, At: *asof})
 }
 
 func (this *identityDomain) IsRootOf(domain ids.Domain) bool {
-	return this.incarnation == nil && this.crcLength == 0 && bytes.Equal(domain.IdRoot(), this.idRoot)
+	return this.Incarnation() == nil && this.CrcLength() == 0 && bytes.Equal(domain.IdRoot(), this.IdRoot())
 }
 
 func (this *identityDomain) IsRoot() bool {
-	return this.incarnation == nil && this.crcLength == 0
+	return this.Incarnation() == nil && this.CrcLength() == 0
 }
 
 func (this *identityDomain) AsRoot() ids.IdentityDomain {
-	domain, _ := NewIdentityDomain(this.Scope(), this.IdRoot(), nil, 0, nil)
-	return domain
+	root, _ := NewIdentityDomain(this.Scope(), this.IdRoot(), nil, 0, this.VersionType(), nil)
+	return root
 }
 
 func (this *identityDomain) HasCurrentMapping(from ids.Identifier) bool {
@@ -159,7 +178,7 @@ func (this *identityDomain) SequenceRoot() []byte {
 }
 
 func (this *identityDomain) SequenceDomainId() []byte {
-	id, _ := toId(this.ScopeId(), this.sequenceRoot, this.sequenceIncarnation, 0)
+	id, _ := domain.ToId(this.ScopeId(), this.sequenceRoot, this.sequenceIncarnation, 0, versionType.UNVERSIONED)
 	return id
 }
 

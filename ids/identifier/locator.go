@@ -1,4 +1,4 @@
-package identifiers
+package identifier
 
 import "github.com/distributed-vision/go-resources/ids"
 

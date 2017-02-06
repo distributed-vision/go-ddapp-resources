@@ -1,8 +1,17 @@
 package ids
 
+import (
+	"reflect"
+	"sync"
+
+	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/version"
+	"github.com/distributed-vision/go-resources/version/versionType"
+)
+
 type Domain interface {
-	ToString() string
-	ToEncodedString(encoder string) string
+	String() string
+	Encode(encoder encoderType.EncoderType) string
 	ToJSON() string
 	IsFor(typeId TypeIdentifier) bool
 	Matches(other Domain) bool
@@ -11,16 +20,19 @@ type Domain interface {
 	Scope() DomainScope
 	IdRoot() []byte
 	Incarnation() *uint32
-	NewIncarnation(incarnation uint32, crcLength uint, info map[string]interface{}) (Domain, error)
+	NewIncarnation(incarnation uint32, crcLength uint, info map[interface{}]interface{}) (Domain, error)
 	CrcLength() uint
+	VersionType() versionType.VersionType
 	Name() string
 	Description() string
 	TypeId() TypeIdentifier
 	Source() string
+	InfoValue(interface{}) interface{}
 	Equals(other Domain) bool
 }
 
 type DomainScopeVisibility int
+
 type DomainScopeFormat int
 type DomainType int
 
@@ -28,10 +40,6 @@ type DomainScope interface {
 	Domain
 	Visibility() DomainScopeVisibility
 	Format() DomainScopeFormat
-	IdBits() int
-
-	Resolve(domainId []byte) (chan Domain, chan error)
-	Get(domainId []byte) (Domain, error)
 }
 
 type IdentityDomain interface {
@@ -51,15 +59,18 @@ type Identifier interface {
 	Id() []byte
 	ScopeId() []byte
 	DomainId() []byte
+	VersionId() []byte
 	DomainIdRoot() []byte
 	DomainIncarnation() *uint32
 	Checksum() []byte
 	Scope() DomainScope
 	Domain() IdentityDomain
+	Version() version.Version
+	HasVersion() bool
 	IsUndefined() bool
 	IsNull() bool
 	IsValid() bool
-	ValueOf() []byte
+	Value() []byte
 
 	Sign(signatureDomain SignatureDomain) (Signature, error)
 
@@ -68,6 +79,36 @@ type Identifier interface {
 
 	As(domain IdentityDomain) (Identifier, error)
 }
+
+var typeInitFunctions = []func(){}
+var typeInitMutex = sync.Mutex{}
+
+func OnLocalTypeInit(initFunction func()) {
+	typeInitMutex.Lock()
+	if IdOfType == nil {
+		typeInitFunctions = append(typeInitFunctions, initFunction)
+	} else {
+		initFunction()
+	}
+	typeInitMutex.Unlock()
+}
+
+func LocalTypeInit(idInitialiser func(gotype reflect.Type) TypeIdentifier) {
+	typeInitMutex.Lock()
+	if IdOfType == nil {
+		IdOfType = idInitialiser
+		for _, initFunction := range typeInitFunctions {
+			initFunction()
+		}
+		typeInitFunctions = []func(){}
+	}
+	typeInitMutex.Unlock()
+}
+
+var IdOfType func(gotype reflect.Type) TypeIdentifier
+
+//var NewIdentifier func(domain Domain, id []byte, ver version.Version) (Identifier, error)
+//var ParseIdentifier func(id string) (Identifier, error)
 
 type SignatureElements interface {
 	SignatureBytes() []byte
@@ -81,7 +122,7 @@ type Signature interface {
 
 type TypeIdentifier interface {
 	Signature
-	IsAssignableFrom(typeId TypeIdentifier) (bool, error)
+	IsAssignableFrom(typeId TypeIdentifier) bool
 }
 
 type Locator interface {
