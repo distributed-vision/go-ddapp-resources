@@ -1,7 +1,7 @@
-package identifier
+package identifier_test
 
 import (
-	"os"
+	"context"
 	"testing"
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
@@ -9,15 +9,7 @@ import (
 	"github.com/distributed-vision/go-resources/ids/domainScope"
 )
 
-func setup(t *testing.T) {
-	if os.Getenv("DV_DOMAIN_SCOPE_PATH") == "" {
-		os.Setenv("DV_DOMAIN_SCOPE_PATH", "../../../domain-scope")
-	}
-}
-
 func TestHashDomainXX64(t *testing.T) {
-
-	setup(t)
 
 	scopeId, err := base62.Decode("1")
 
@@ -39,12 +31,12 @@ func TestHashDomainXX64(t *testing.T) {
 		IgnoreCase:       true,
 		IgnoreWhitespace: true}}
 
-	scope, err := domainScope.Get(domainScope.Selector{Id: scopeId})
+	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
 
 	if err != nil {
 		t.Errorf("TestHashDomainXX64 Failed to resolve Scope: %s", err)
 	} else {
-		domain, derr := domain.Get(domain.Selector{Scope: scope, Id: domainId})
+		domain, derr := domain.Get(context.Background(), domain.Selector{Scope: scope, Id: domainId})
 
 		if derr != nil {
 			t.Errorf("TestHashDomainXX64 Failed to resolve Domain: %s", derr)
@@ -69,12 +61,13 @@ func TestHashDomainXX64(t *testing.T) {
 		}
 	}
 
-	scope, err = domainScope.Get(scopeNameSelector)
+	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
 
 	if err != nil {
 		t.Errorf("TestHashDomainXX64 Failed to resolve Scope: %s", err)
 	} else {
-		domain, derr := domain.Get(domainNameSelector)
+		domain, derr := domain.Get(context.Background(), domainNameSelector)
+
 		if derr != nil {
 			t.Errorf("TestHashDomainXX64 Failed to resolve Domain: %s", derr)
 		} else {
@@ -99,105 +92,248 @@ func TestHashDomainXX64(t *testing.T) {
 	}
 }
 
+func TestHashDomainXX32(t *testing.T) {
+
+	scopeId, err := base62.Decode("1")
+
+	if err != nil {
+		t.Errorf("TestHashDomainXX32 Failed: Can't decode scopeId")
+	}
+
+	domainId, err := base62.Decode("1")
+
+	if err != nil {
+		t.Errorf("TestHashDomainXX32 Failed: Can't decode domainId")
+	}
+
+	scopeNameSelector := domainScope.Selector{Name: "global hash", Opts: domainScope.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	domainNameSelector := domain.Selector{Name: "xx32", Opts: domain.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
+
+	if err != nil {
+		t.Errorf("TestHashDomainXX32 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domain.Selector{Scope: scope, Id: domainId})
+
+		if derr != nil {
+			t.Errorf("TestHashDomainXX32 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7B" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Id: expected: '%s' got '%s'", "H7B", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "xx32" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Name: expected: '%s' got '%s'", "xx32", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "1" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.IdRoot: expected: '%s' got '%s'", "1", base62.Encode(domain.IdRoot()))
+
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+
+	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
+
+	if err != nil {
+		t.Errorf("TestHashDomainXX32 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domainNameSelector)
+		if derr != nil {
+			t.Errorf("TestHashDomainXX32 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7B" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Id: expected: '%s' got '%s'", "H7B", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "xx32" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Name: expected: '%s' got '%s'", "xx32", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "1" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.IdRoot: expected: '%s' got '%s'", "1", base62.Encode(domain.IdRoot()))
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainXX32 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+}
+
+func TestHashDomainRipemd160(t *testing.T) {
+	scopeId, err := base62.Decode("1")
+
+	if err != nil {
+		t.Errorf("TestHashDomainRipemd160 Failed: Can't decode scopeId")
+	}
+
+	domainId, err := base62.Decode("2")
+
+	if err != nil {
+		t.Errorf("TestHashDomainRipemd160 Failed: Can't decode domainId")
+	}
+
+	scopeNameSelector := domainScope.Selector{Name: "global hash", Opts: domainScope.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	domainNameSelector := domain.Selector{Name: "ripemd160", Opts: domain.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
+
+	if err != nil {
+		t.Errorf("TestHashDomainRipemd160 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domain.Selector{Scope: scope, Id: domainId})
+
+		if derr != nil {
+			t.Errorf("TestHashDomainRipemd160 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7C" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Id: expected: '%s' got '%s'", "H7C", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "ripemd160" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Name: expected: '%s' got '%s'", "ripemd160", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "2" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.IdRoot: expected: '%s' got '%s'", "2", base62.Encode(domain.IdRoot()))
+
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+
+	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
+
+	if err != nil {
+		t.Errorf("TestHashDomainRipemd160 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domainNameSelector)
+		if derr != nil {
+			t.Errorf("TestHashDomainRipemd160 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7C" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Id: expected: '%s' got '%s'", "H7C", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "ripemd160" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Name: expected: '%s' got '%s'", "ripemd160", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "2" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.IdRoot: expected: '%s' got '%s'", "2", base62.Encode(domain.IdRoot()))
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainRipemd160 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+}
+
+func TestHashDomainSha256(t *testing.T) {
+	scopeId, err := base62.Decode("1")
+
+	if err != nil {
+		t.Errorf("TestHashDomainSha256 Failed: Can't decode scopeId")
+	}
+
+	domainId, err := base62.Decode("3")
+
+	if err != nil {
+		t.Errorf("TestHashDomainSha256 Failed: Can't decode domainId")
+	}
+
+	scopeNameSelector := domainScope.Selector{Name: "global hash", Opts: domainScope.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	domainNameSelector := domain.Selector{Name: "sha256", Opts: domain.SelectorOpts{
+		IgnoreCase:       true,
+		IgnoreWhitespace: true}}
+
+	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
+
+	if err != nil {
+		t.Errorf("TestHashDomainSha256 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domain.Selector{Scope: scope, Id: domainId})
+
+		if derr != nil {
+			t.Errorf("TestHashDomainSha256 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7D" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Id: expected: '%s' got '%s'", "H7D", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "sha256" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Name: expected: '%s' got '%s'", "sha256", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "3" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.IdRoot: expected: '%s' got '%s'", "3", base62.Encode(domain.IdRoot()))
+
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+
+	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
+
+	if err != nil {
+		t.Errorf("TestHashDomainSha256 Failed to resolve Scope: %s", err)
+	} else {
+		domain, derr := domain.Get(context.Background(), domainNameSelector)
+		if derr != nil {
+			t.Errorf("TestHashDomainSha256 Failed to resolve Domain: %s", derr)
+		} else {
+			if base62.Encode(domain.Id()) != "H7D" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Id: expected: '%s' got '%s'", "H7D", base62.Encode(domain.Id()))
+			}
+
+			if domain.Name() != "sha256" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Name: expected: '%s' got '%s'", "sha256", domain.Name())
+
+			}
+
+			if base62.Encode(domain.IdRoot()) != "3" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.IdRoot: expected: '%s' got '%s'", "3", base62.Encode(domain.IdRoot()))
+			}
+
+			if base62.Encode(domain.Scope().Id()) != "1" {
+				t.Errorf("TestHashDomainSha256 Failed: domain.Scope.Id: expected: '%s' got '%s'", "1", base62.Encode(domain.Scope().Id()))
+			}
+		}
+	}
+}
+
 /*
-	func TestHashDomainXX32(t *testing.T) {
-
-    let scopeId = base62.decode('1')
-    let domainId = base62.decode('1')
-    let scopeNameSelector = new Selector({name: 'global hash'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-    let domainNameSelector = new Selector({name: 'xx32'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-
-    return DomainScopeResolver.resolve(scopeId)
-      .then(scope => scope.resolve(domainId))
-      .then(domain => {
-        should(base62.encode(domain.id)).equal('H7B')
-        should(domain.name).equal('xx32')
-        should(base62.encode(domain.idRoot)).equal('1')
-        should(base62.encode(domain.scope.id)).equal('1')
-      })
-      .then(() => {
-        return DomainScopeResolver.resolve(scopeNameSelector)
-          .then(scope => scope.resolve(domainNameSelector))
-          .then(domain => {
-            should(base62.encode(domain.id)).equal('H7B')
-            should(domain.name).equal('xx32')
-            should(base62.encode(domain.idRoot)).equal('1')
-            should(base62.encode(domain.scope.id)).equal('1')
-          })
-      })
-  })
-
-  it("resolve ripemd160", function() {
-    let scopeId = base62.decode('1')
-    let domainId = base62.decode('2')
-    let scopeNameSelector = new Selector({name: 'global hash'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-    let domainNameSelector = new Selector({name: 'ripemd160'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-
-    return DomainScopeResolver.resolve(scopeId)
-      .then(scope => scope.resolve(domainId))
-      .then(domain => {
-        should(base62.encode(domain.id)).equal('H7C')
-        should(domain.name).equal('ripemd160')
-        should(base62.encode(domain.idRoot)).equal('2')
-        should(base62.encode(domain.scope.id)).equal('1')
-      })
-      .then(() => {
-        return DomainScopeResolver.resolve(scopeNameSelector)
-          .then(scope => scope.resolve(domainNameSelector))
-          .then(domain => {
-            should(base62.encode(domain.id)).equal('H7C')
-            should(domain.name).equal('ripemd160')
-            should(base62.encode(domain.idRoot)).equal('2')
-            should(base62.encode(domain.scope.id)).equal('1')
-          })
-      })
-  })
-
-  it("resolve sha256", function() {
-    let scopeId = base62.decode('1')
-    let domainId = base62.decode('3')
-    let scopeNameSelector = new Selector({name: 'global hash'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-    let domainNameSelector = new Selector({name: 'sha256'}, {
-      ignoreCase: true,
-      ignoreWhitespace: true
-    })
-
-    return DomainScopeResolver.resolve(scopeId)
-      .then(scope => scope.resolve(domainId))
-      .then(domain => {
-        should(base62.encode(domain.id)).equal('H7D')
-        should(domain.name).equal('sha256')
-        should(base62.encode(domain.idRoot)).equal('3')
-        should(base62.encode(domain.scope.id)).equal('1')
-      })
-      .then(() => {
-        return DomainScopeResolver.resolve(scopeNameSelector)
-          .then(scope => scope.resolve(domainNameSelector))
-          .then(domain => {
-            should(base62.encode(domain.id)).equal('H7D')
-            should(domain.name).equal('sha256')
-            should(base62.encode(domain.idRoot)).equal('3')
-            should(base62.encode(domain.scope.id)).equal('1')
-          })
-      })
-  })
-})
-
 describe('Domain with Incarnations', function() {
   let scopeId = base62.decode('1')
   let domainId = base62.decode('3')

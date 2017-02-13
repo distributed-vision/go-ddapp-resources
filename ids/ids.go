@@ -40,6 +40,7 @@ type DomainScope interface {
 	Domain
 	Visibility() DomainScopeVisibility
 	Format() DomainScopeFormat
+	RegisterResolvers() error
 }
 
 type IdentityDomain interface {
@@ -85,7 +86,7 @@ var typeInitMutex = sync.Mutex{}
 
 func OnLocalTypeInit(initFunction func()) {
 	typeInitMutex.Lock()
-	if IdOfType == nil {
+	if NewLocalTypeId == nil {
 		typeInitFunctions = append(typeInitFunctions, initFunction)
 	} else {
 		initFunction()
@@ -93,10 +94,12 @@ func OnLocalTypeInit(initFunction func()) {
 	typeInitMutex.Unlock()
 }
 
-func LocalTypeInit(idInitialiser func(gotype reflect.Type) TypeIdentifier) {
+func LocalTypeInit(localIdInitialiser func(gotype reflect.Type) TypeIdentifier,
+	publicIdInitialiser func(domainValue interface{}, id []byte, idVersion version.Version) (TypeIdentifier, error)) {
 	typeInitMutex.Lock()
-	if IdOfType == nil {
-		IdOfType = idInitialiser
+	if NewLocalTypeId == nil {
+		NewLocalTypeId = localIdInitialiser
+		NewTypeId = publicIdInitialiser
 		for _, initFunction := range typeInitFunctions {
 			initFunction()
 		}
@@ -105,10 +108,8 @@ func LocalTypeInit(idInitialiser func(gotype reflect.Type) TypeIdentifier) {
 	typeInitMutex.Unlock()
 }
 
-var IdOfType func(gotype reflect.Type) TypeIdentifier
-
-//var NewIdentifier func(domain Domain, id []byte, ver version.Version) (Identifier, error)
-//var ParseIdentifier func(id string) (Identifier, error)
+var NewLocalTypeId func(gotype reflect.Type) TypeIdentifier
+var NewTypeId func(domainValue interface{}, id []byte, idVersion version.Version) (TypeIdentifier, error)
 
 type SignatureElements interface {
 	SignatureBytes() []byte

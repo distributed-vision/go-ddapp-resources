@@ -19,6 +19,7 @@ type Resolver interface {
 }
 
 type ResolverInfo interface {
+	ResolverType() ids.TypeIdentifier
 	EntityTypes() []ids.TypeIdentifier
 	Matches(selector Selector) bool
 	Value(key interface{}) interface{}
@@ -32,16 +33,27 @@ type ResolverFactory interface {
 	New(resolutionContext context.Context) (chan Resolver, chan error)
 }
 
-func Get(selector Selector) (entity interface{}, err error) {
-	cres, cerr := Resolve(context.Background(), selector)
+func Get(resolutionContext context.Context, selector Selector) (entity interface{}, err error) {
+	cres, cerr := Resolve(resolutionContext, selector)
 
 	if cres == nil || cerr == nil {
 		return nil, fmt.Errorf("resolvers.Get Failed: resolvers.Resolve channels are undefined")
 	}
 
-	select {
-	case entity = <-cres:
-	case err = <-cerr:
+	resolved := false
+	for !resolved {
+		select {
+		case result, ok := <-cres:
+			if ok {
+				entity = result
+				resolved = true
+			}
+		case error, ok := <-cerr:
+			if ok {
+				err = error
+				resolved = true
+			}
+		}
 	}
 
 	return entity, err
@@ -123,10 +135,11 @@ func Resolve(resolutionContext context.Context, selector Selector) (chan interfa
 			}
 		}
 
+		//fmt.Printf("Resolve:  %+v\n", resolverEntry)
 		cres, cerr := resolverEntry.resolver.Resolve(mergeContext, selector)
 
 		if cres == nil || cerr == nil {
-			errors = append(errors, fmt.Errorf("domain.Get Failed: domain.Resolve channels are undefined"))
+			errors = append(errors, fmt.Errorf("Resolve Failed: Resolve channels are undefined"))
 		}
 
 		for result == nil {
@@ -164,7 +177,7 @@ func Resolve(resolutionContext context.Context, selector Selector) (chan interfa
 		if result != nil {
 			cResOut <- result
 		} else if len(errors) > 0 {
-			cErrOut <- fmt.Errorf("Resolve failed with the folling errors %v", errors)
+			cErrOut <- fmt.Errorf("Resolve failed with the following errors %v", errors)
 		}
 		close(cResOut)
 		close(cErrOut)
@@ -197,19 +210,43 @@ func RegisterFactory(resolverFactory ResolverFactory) {
 	}
 }
 
+type NewFactoryFunction func(resolverInfo ResolverInfo) (ResolverFactory, error)
+
+var newFactoryFunctionRegistry map[string]NewFactoryFunction = make(map[string]NewFactoryFunction)
+var newFactoryFunctionRegistryMutex = &sync.Mutex{}
+
 func NewResolverFactory(resolverInfo ResolverInfo) (ResolverFactory, error) {
-	return nil, nil
+	newFactoryFunctionRegistryMutex.Lock()
+	defer newFactoryFunctionRegistryMutex.Unlock()
+	//fmt.Printf("Getting func for: %v\n", resolverInfo.ResolverType())
+	if newFactoryFunction, ok := newFactoryFunctionRegistry[string(resolverInfo.ResolverType().Value())]; ok {
+		return newFactoryFunction(resolverInfo)
+	}
+
+	return nil, fmt.Errorf("No factory function availible for: %s", string(resolverInfo.ResolverType().Id()))
+}
+
+func ResisterNewFactoryFunction(resolverType ids.TypeIdentifier, newFactoryFunction NewFactoryFunction) {
+	newFactoryFunctionRegistryMutex.Lock()
+	//fmt.Printf("Regestering func for: %v\n", resolverType)
+	newFactoryFunctionRegistry[string(resolverType.Value())] = newFactoryFunction
+	newFactoryFunctionRegistryMutex.Unlock()
 }
 
 type resolverInfo struct {
-	entityTypes []ids.TypeIdentifier
+	resolverType ids.TypeIdentifier
+	entityTypes  []ids.TypeIdentifier
 	//entityDomains []ids.Domain
 	values map[interface{}]interface{}
 	parent ResolverInfo
 }
 
-func NewResolverInfo(entityTypes []ids.TypeIdentifier, values map[interface{}]interface{}) ResolverInfo {
-	return &resolverInfo{entityTypes, values, nil}
+func NewResolverInfo(resolverType ids.TypeIdentifier, entityTypes []ids.TypeIdentifier, values map[interface{}]interface{}) ResolverInfo {
+	return &resolverInfo{resolverType, entityTypes, values, nil}
+}
+
+func (this *resolverInfo) ResolverType() ids.TypeIdentifier {
+	return this.resolverType
 }
 
 func (this *resolverInfo) EntityTypes() []ids.TypeIdentifier {
@@ -224,7 +261,7 @@ func (this *resolverInfo) Value(key interface{}) (res interface{}) {
 	if res == nil && this.parent != nil {
 		res = this.parent.Value(key)
 	}
-
+	//fmt.Printf("value[%s]=%v\n", key, res)
 	return res
 }
 
@@ -235,9 +272,9 @@ func (this *resolverInfo) Matches(selector Selector) bool {
 func (this *resolverInfo) WithValue(key, value interface{}) ResolverInfo {
 	values := make(map[interface{}]interface{})
 	values[key] = value
-	return &resolverInfo{this.entityTypes, values, this}
+	return &resolverInfo{this.resolverType, this.entityTypes, values, this}
 }
 
 func (this *resolverInfo) WithValues(values map[interface{}]interface{}) ResolverInfo {
-	return &resolverInfo{this.entityTypes, values, this}
+	return &resolverInfo{this.resolverType, this.entityTypes, values, this}
 }

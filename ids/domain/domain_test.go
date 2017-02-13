@@ -123,4 +123,12 @@ func TestGoTypeIdDomainDefinition(t *testing.T) {
 		t.Errorf("TestDomainIdFormatting: ToId failed expected %s: got %s", "YAC", base62.Encode(id))
 	}
 
+	incarnation := uint32(0)
+
+	id, err = DecodeId(encoderType.BASE62, "T", "0", &incarnation)
+
+	if base62.Encode(id) != "2DAEU1w" {
+		t.Errorf("TestDomainIdFormatting: ToId failed expected %s: got %s", "2DAEU1w", base62.Encode(id))
+	}
+
 }

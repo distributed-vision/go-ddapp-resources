@@ -15,6 +15,8 @@ import (
 	"github.com/sigurn/crc8"
 )
 
+var DomainPathKey = "DV_DOMAIN_PATH"
+
 type domain struct {
 	id          []byte
 	scope       ids.DomainScope
@@ -37,7 +39,7 @@ func NewDomain(scope ids.DomainScope, idRoot []byte, incarnation *uint32, crcLen
 	}
 
 	id, err := ToId(scopeId, idRoot, incarnation, crcLength, versionType)
-
+	//fmt.Printf("id=%v\n", id)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +80,7 @@ func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, ve
 	var incarnationSlice = IncarnationAsBytes(incarnation)
 
 	unscoped := bytes.Join([][]byte{idRoot, incarnationSlice}, empty)
-
+	//fmt.Printf("unscoped=%v\n", unscoped)
 	if len(unscoped) > 61 {
 		return nil, errors.New("Id too Long: domain id unscoped binary length (idRoot+incarnation) must be < 61")
 	}
@@ -142,8 +144,11 @@ func DecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string
 	}
 
 	if len(features) > 0 {
+
 		if feature, ok := features[0].(*uint32); ok {
 			incarnationValue = feature
+		} else if feature, ok := features[0].(uint32); ok {
+			incarnationValue = &feature
 		} else {
 			return nil, fmt.Errorf("Invalid incarnation type expected: *uint32, got: %s", reflect.ValueOf(features[0]).Type())
 		}
@@ -153,7 +158,7 @@ func DecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string
 		if feature, ok := features[1].(uint); ok {
 			crcLengthValue = feature
 		} else {
-			return nil, fmt.Errorf("Invalid crcLength type expected: int, got: %s", reflect.ValueOf(features[1]).Type())
+			return nil, fmt.Errorf("Invalid crcLength type expected: uint, got: %s", reflect.ValueOf(features[1]).Type())
 		}
 	}
 
@@ -338,7 +343,7 @@ func (this *domain) Source() string {
 }
 
 func (this *domain) InfoValue(key interface{}) interface{} {
-
+	//fmt.Printf("info=%v\n", this.info)
 	if this.info != nil {
 		value, ok := this.info[key]
 		if ok {
@@ -445,10 +450,39 @@ func VersionTypeValue(value []byte) (versionType.VersionType, error) {
 }
 
 func VersionLength(value []byte) uint {
+	lengthLength := VersionLengthLength(value)
+
+	if lengthLength > 0 {
+		domainOffset := ScopeLength(value) + 1 + featureSliceLength(value)
+		domainLength := DomainLength(value)
+		return uint(value[domainOffset+domainLength])
+	}
+
+	return 0
+}
+
+func NumericVersionValue(versionValue []byte) uint32 {
+	vlen := len(versionValue)
+	if vlen > 0 {
+		if vlen == 1 {
+			return uint32(versionValue[0])
+		}
+		if vlen == 2 {
+			return uint32(ntohs(versionValue, 0))
+		}
+		return ntohl(versionValue, 0)
+	}
+
 	return 0
 }
 
 func VersionLengthLength(value []byte) uint {
+	vt, err := VersionTypeValue(value)
+	if err == nil {
+		if vt != versionType.UNVERSIONED {
+			return 1
+		}
+	}
 	return 0
 }
 
@@ -512,8 +546,12 @@ func DomainLength(value []byte) uint {
 	return uint(value[ScopeLength(value)] & 0x3f)
 }
 
+func DomainOffset(value []byte) uint {
+	return ScopeLength(value) + 1 + featureSliceLength(value)
+}
+
 func IdRootValue(value []byte) []byte {
-	domainOffset := ScopeLength(value) + 1 + featureSliceLength(value)
+	domainOffset := DomainOffset(value)
 	return value[domainOffset : domainOffset+DomainLength(value)-IncarnationLength(value)]
 }
 

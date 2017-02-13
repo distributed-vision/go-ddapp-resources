@@ -1,4 +1,4 @@
-package fileResolver
+package fileresolver
 
 import (
 	"context"
@@ -18,31 +18,26 @@ import (
 	"github.com/distributed-vision/go-resources/translators"
 	"github.com/distributed-vision/go-resources/types"
 	"github.com/distributed-vision/go-resources/types/gotypeid"
-	"github.com/fatih/structs"
+	"github.com/distributed-vision/go-resources/types/publictypeid"
+	"github.com/distributed-vision/go-resources/version"
 )
 
 var contentType ids.TypeIdentifier = gotypeid.IdOf(reflect.TypeOf(map[string]interface{}{}))
 
 type fileResolver struct {
-	path      string
-	opts      Opts
-	entityMap map[string]interface{}
-}
-
-type Opts struct {
-	Paths         []string
-	UnmarshalJSON func(values map[string]interface{}, opts map[string]interface{}) (interface{}, error)
+	path         string
+	resolverInfo resolvers.ResolverInfo
+	entityMap    map[string]interface{}
 }
 
 var resolverMap map[string]*fileResolver = make(map[string]*fileResolver)
-
 var resolverType ids.TypeIdentifier = gotypeid.IdOf(reflect.TypeOf(fileResolver{}))
+var publicTypeVersion = version.SemanticVersion{Major: 0, Minor: 0, Patch: 1}
+var PublicType = types.MustNewId(publictypeid.ResolverDomain, []byte("FileResolver"), &publicTypeVersion)
 
 func init() {
-	baseType := types.IdOf("T0-FileResolver")
-	mappings.Add(resolverType, baseType, nil, nil)
-	//translators.Register(context.Background(), resolverType, baseType, baseTypeTranslator)
-	//resolverFactories.Register(baseType, &factory{})
+	mappings.Add(resolverType, PublicType, nil, nil)
+	resolvers.ResisterNewFactoryFunction(PublicType, NewResolverFactory)
 }
 
 func baseTypeTranslator(translationContext context.Context, resoverInfo interface{}) (chan interface{}, chan error) {
@@ -62,9 +57,22 @@ func NewResolverFactory(resolverInfo resolvers.ResolverInfo) (resolvers.Resolver
 }
 
 func (this *factory) New(resolutionContext context.Context) (chan resolvers.Resolver, chan error) {
-	resolver, err := New(this.resolverInfo.Value("file").(string), Opts{Paths: this.resolverInfo.Value("paths").([]string)})
+	var err error
+
+	locationValue := this.resolverInfo.Value("location")
+
+	if locationValue == nil {
+		err = fmt.Errorf("ResolverInfo 'location' value can't be nil")
+	}
+
+	location := locationValue.(string)
+
+	resolver, err := New(
+		location,
+		this.resolverInfo)
 
 	cres, cerr := make(chan resolvers.Resolver, 1), make(chan error, 1)
+
 	if err != nil {
 		cerr <- err
 	} else {
@@ -85,14 +93,14 @@ func (this *factory) ResolverInfo() resolvers.ResolverInfo {
 	return this.resolverInfo
 }
 
-func New(locator string, opts Opts) (resolvers.Resolver, error) {
+func New(locator string, resolverInfo resolvers.ResolverInfo) (resolvers.Resolver, error) {
 	resolver, ok := resolverMap[locator]
 
 	if ok {
 		return resolver, nil
 	}
 
-	resolver, err := newResolver(locator, opts)
+	resolver, err := newResolver(locator, resolverInfo)
 
 	if err != nil {
 		return nil, err
@@ -103,13 +111,15 @@ func New(locator string, opts Opts) (resolvers.Resolver, error) {
 	return resolver, nil
 }
 
-func newResolver(file string, opts Opts) (*fileResolver, error) {
+func newResolver(file string, resolverInfo resolvers.ResolverInfo) (*fileResolver, error) {
 
 	var filePath string
 
-	if opts.Paths != nil {
+	pathsValue := resolverInfo.Value("paths")
 
-		for _, respath := range opts.Paths {
+	if pathsValue != nil {
+
+		for _, respath := range pathsValue.([]string) {
 			respath = path.Join(respath, file)
 
 			_, err := os.Stat(respath)
@@ -128,28 +138,46 @@ func newResolver(file string, opts Opts) (*fileResolver, error) {
 	}
 
 	if filePath == "" {
-		if opts.Paths == nil {
+		if pathsValue == nil {
 			return nil, fmt.Errorf("Can't find: %s", file)
 		}
 
-		return nil, fmt.Errorf("Can't find: %s in: %v", file, opts.Paths)
+		return nil, fmt.Errorf("Can't find: %s in: %v", file, pathsValue)
 	}
 
-	return &fileResolver{path: filePath, opts: opts}, nil
+	return &fileResolver{path: filePath, resolverInfo: resolverInfo}, nil
 }
 
-func (this *fileResolver) Resolve(context context.Context, selector resolvers.Selector) (chan interface{}, chan error) {
+func (this *fileResolver) Resolve(resolutionContext context.Context, selector resolvers.Selector) (chan interface{}, chan error) {
 
 	cres, cerr := make(chan interface{}), make(chan error)
 
+	if this.resolverInfo != nil {
+		resolutionContext = context.WithValue(resolutionContext, "resolverInfo", this.resolverInfo)
+	}
+
 	go func() {
-		entityMap, err := this.getMap(context, selector.Type())
+		entityMap, err := this.getMap(resolutionContext, selector.Type())
 
 		if err != nil {
 			cerr <- err
 		} else if entityMap != nil {
-			entity, ok := entityMap[selector.Key().(string)]
+			//fmt.Printf("sel=%+v\n", selector)
+			//fmt.Printf("entities: %v\n", entityMap)
+			var key string
 
+			switch selector.Key().(type) {
+			case string:
+				key = selector.Key().(string)
+			case []byte:
+				key = string(selector.Key().([]byte))
+			default:
+				key = fmt.Sprintf("%v", selector.Key())
+			}
+
+			entity, ok := entityMap[key]
+
+			//fmt.Printf("key=%v, entity: %v\n", key, entity)
 			if ok {
 				if selector.Test(entity) {
 					cres <- entity
@@ -192,7 +220,7 @@ func (this *fileResolver) getMap(context context.Context, targetType ids.TypeIde
 	return entityMap, err
 }
 
-var unypedLocalDomain []byte = domain.MustDecodeId(encoderType.BASE62, "3", "")
+var untypedLocalDomain []byte = domain.MustDecodeId(encoderType.BASE62, "3", "")
 
 func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeIdentifier) (map[string]interface{}, error) {
 	data, err := ioutil.ReadFile(this.path)
@@ -210,13 +238,6 @@ func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeId
 
 	jsonEntityMap := jsonEntities.(map[string]interface{})
 
-	opts := map[string]interface{}{
-		"path": this.path}
-
-	for key, value := range structs.Map(this.opts) {
-		opts[key] = value
-	}
-
 	//fmt.Printf("Content Type=%+v, Target Type %+v\n", contentType, targetType)
 
 	entityMap := make(map[string]interface{})
@@ -224,8 +245,8 @@ func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeId
 	for id, jsonEntity := range jsonEntityMap {
 		if contentType != targetType {
 			//fmt.Printf("id=%s\n", id)
-			entityId, err := identifier.New(unypedLocalDomain, []byte(id), nil)
-			//identifier.Parse(id)
+			entityId, err := identifier.New(untypedLocalDomain, []byte(id), nil)
+			//fmt.Printf("id=%v\n", entityId.Value())
 
 			if err != nil {
 				return nil, err
@@ -243,7 +264,7 @@ func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeId
 				select {
 				case entity, ok := <-cTransRes:
 					if ok {
-						entityMap[string(entityId.Value())] = entity
+						entityMap[string(entityId.Id())] = entity
 						hasTranslation = true
 					}
 				case err, ok := <-cTransErr:

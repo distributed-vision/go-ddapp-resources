@@ -1,17 +1,57 @@
 package domain
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domainType"
 	"github.com/distributed-vision/go-resources/resolvers"
+	"github.com/distributed-vision/go-resources/translators"
 )
+
+func domainTranslator(translationContext context.Context, fromId ids.Identifier, fromValue interface{}) (chan interface{}, chan error) {
+
+	cres := make(chan interface{}, 1)
+	cerr := make(chan error, 1)
+
+	json := fromValue.(map[string]interface{})
+	json["id"] = string(fromId.Id())
+
+	toValue, err := unmarshalJSON(translationContext, json)
+	//fmt.Printf("id: %+v val: %+v err: %s\n", fromId.Id(), toValue, err)
+
+	if err != nil {
+		cerr <- err
+	} else {
+		cres <- toValue
+	}
+
+	close(cres)
+	close(cerr)
+
+	return cres, cerr
+}
+
+var domainEntityType ids.TypeIdentifier
+
+func init() {
+	ids.OnLocalTypeInit(func() {
+
+		if domainEntityType == nil {
+			domainEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.Domain)(nil)).Elem())
+		}
+
+		mapType := ids.NewLocalTypeId(reflect.TypeOf(map[string]interface{}{}))
+		translators.Register(context.Background(), mapType, domainEntityType, domainTranslator)
+	})
+}
 
 type SelectorOpts struct {
 	IgnoreCase       bool
@@ -26,45 +66,60 @@ type Selector struct {
 }
 
 func (this *Selector) Test(candidate interface{}) bool {
+	domain, ok := candidate.(ids.Domain)
+
+	if !ok {
+		return false
+	}
+
+	if this.Id != nil && !bytes.Equal(this.Id, domain.IdRoot()) {
+		return false
+	}
+
+	if this.Name != "" {
+		if this.Opts.IgnoreCase {
+			if strings.ToUpper(this.Name) != strings.ToUpper(domain.Name()) {
+				return false
+			}
+		} else {
+			if this.Name != domain.Name() {
+				return false
+			}
+		}
+	}
+
 	return true
 }
 
 func (this *Selector) Key() interface{} {
-	return this.Id
+	return base62.Encode(this.Id)
 }
 
 var entityType ids.TypeIdentifier
 
 func (this *Selector) Type() ids.TypeIdentifier {
 	if entityType == nil {
-		entityType = ids.IdOfType(reflect.TypeOf((*ids.Domain)(nil)).Elem())
+		entityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.Domain)(nil)).Elem())
 	}
 
 	return entityType
 }
 
-func Get(selector Selector) (domain ids.Domain, err error) {
-	cres, cerr := Resolve(context.Background(), selector)
+func Get(resolutionContext context.Context, selector Selector) (domain ids.Domain, err error) {
+	//fmt.Printf("scope=%+v\n", selector.Scope)
+	res, err := resolvers.Get(resolutionContext, &selector)
 
-	if cres == nil || cerr == nil {
-		return nil, fmt.Errorf("domain.Get Failed: domain.Resolve channels are undefined")
+	if err != nil {
+		return nil, err
 	}
 
-	select {
-	case domain = <-cres:
-		if domain != nil {
-			break
-		}
-	case err = <-cerr:
-		if err != nil {
-			break
-		}
+	if domain, ok := res.(ids.Domain); ok {
+		return domain, err
 	}
 
-	return domain, err
+	return nil, fmt.Errorf("Resolver returned invalid type, expected: ids.Domain got: %s", reflect.TypeOf(res))
 }
 
-var domainResolvers []resolvers.Resolver
 var domainMaps = make(map[string]map[string]ids.Domain)
 var resolveMutex = &sync.Mutex{}
 
@@ -91,85 +146,27 @@ func Resolve(resolutionContext context.Context, selector Selector) (<-chan ids.D
 		return cResOut, cErrOut
 	}
 
-	if domainResolvers == nil {
-		resolveMutex.Lock()
-
-		if domainResolvers == nil {
-			domainResolvers = make([]resolvers.Resolver, 0)
-			// TODO only need to do thsi once - probably should just call resolve and
-			// move the merge to there
-			for _, resolverInfo := range selector.Scope.InfoValue("resolverInfo").(map[interface{}]resolvers.ResolverInfo) {
-				resolverFactory, err := resolvers.NewResolverFactory(resolverInfo)
-
-				if err != nil {
-					cresolver, cerr := resolverFactory.New(resolutionContext)
-
-					select {
-					case resolver := <-cresolver:
-						if resolver != nil {
-							domainResolvers = append(domainResolvers, resolver)
-						}
-					case err := <-cerr:
-						if err != nil {
-							continue
-						}
-					case <-resolutionContext.Done():
-						close(cResOut)
-						close(cErrOut)
-						return cResOut, cErrOut
-					}
-				}
-			}
-		}
-
-		resolveMutex.Unlock()
-	}
-
-	var wg sync.WaitGroup
-	mergeContext, cancel := context.WithCancel(resolutionContext)
-	errors := make([]error, 0)
-	resultMutex := &sync.Mutex{}
-
-	resolve := func(resolver resolvers.Resolver) {
-		defer wg.Done()
-
-		cres, cerr := resolver.Resolve(mergeContext, &selector)
-
-		if cres == nil || cerr == nil {
-			errors = append(errors, fmt.Errorf("domain.Get Failed: domain.Resolve channels are undefined"))
-		}
-
-		select {
-		case res := <-cres:
-			if res != nil {
-				if result == nil {
-					resultMutex.Lock()
-					if result == nil {
-						result = res.(ids.Domain)
-						cancel()
-					}
-					resultMutex.Unlock()
-				}
-			}
-		case err := <-cerr:
-			if err != nil {
-				errors = append(errors, err)
-			}
-		case <-mergeContext.Done():
-		}
-	}
-
-	wg.Add(len(domainResolvers))
-	for _, r := range domainResolvers {
-		go resolve(r)
-	}
+	cresIn, cerrIn := resolvers.Resolve(resolutionContext, &selector)
 
 	go func() {
-		wg.Wait()
-		if result != nil {
-			cResOut <- result
-		} else if len(errors) > 0 {
-			cErrOut <- fmt.Errorf("Resolve failed with the folling errors %v", errors)
+		resolved := false
+		for !resolved {
+			select {
+			case resIn, ok := <-cresIn:
+				if ok {
+					if domain, ok := resIn.(ids.Domain); ok {
+						cResOut <- domain
+					} else {
+						cErrOut <- fmt.Errorf("Resolver returned invalid type, expected: ids.Domain got: %s", reflect.TypeOf(resIn))
+					}
+					resolved = true
+				}
+			case errIn, ok := <-cerrIn:
+				if ok {
+					cErrOut <- errIn
+					resolved = true
+				}
+			}
 		}
 		close(cResOut)
 		close(cErrOut)
@@ -178,10 +175,7 @@ func Resolve(resolutionContext context.Context, selector Selector) (<-chan ids.D
 	return cResOut, cErrOut
 }
 
-//	_resolverFactories.set('github', GitHubResolver.createResolver)
-//	_resolverFactories.set('file', FileResolver.createResolver)
-
-type unmarshaller func(json map[string]interface{}, opts map[string]interface{}) (ids.Domain, error)
+type unmarshaller func(unmarshalContext context.Context, json map[string]interface{}) (ids.Domain, error)
 
 var unmarshalers map[ids.DomainType]unmarshaller = make(map[ids.DomainType]unmarshaller)
 
@@ -189,9 +183,9 @@ func RegisterJSONUnmarshaller(domainType ids.DomainType, unmarshaller unmarshall
 	unmarshalers[domainType] = unmarshaller
 }
 
-func unmarshalJSON(json map[string]interface{}, opts map[string]interface{}) (ids.Domain, error) {
+func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}) (ids.Domain, error) {
 	dt, err := domainType.Parse(json["domainType"].(string))
-
+	//fmt.Printf("dt=%v\n", dt)
 	if err != nil {
 		return nil, err
 	}
@@ -202,5 +196,5 @@ func unmarshalJSON(json map[string]interface{}, opts map[string]interface{}) (id
 		return nil, errors.New("Unknown domain type: " + json["domainType"].(string))
 	}
 
-	return unmarshaler(json, opts)
+	return unmarshaler(unmarshalContext, json)
 }

@@ -17,6 +17,9 @@ import (
 	"github.com/distributed-vision/go-resources/version/versionType"
 )
 
+func Init() {
+}
+
 type identifier struct {
 	value []byte
 }
@@ -124,10 +127,12 @@ func AsLocator(id ids.Identifier) ids.Locator {
 }
 
 func (this *identifier) Id() []byte {
-	scopeLength := domain.ScopeLength(this.value)
-	domainLength := domain.DomainLength(this.value) + 1 + domain.VersionLengthLength(this.value)
+	domainOffset := domain.DomainOffset(this.value)
+	domainLength := domain.DomainLength(this.value) + domain.VersionLengthLength(this.value)
+	versionLength := domain.VersionLength(this.value)
 	identifierLength, _ := identifierLength(this.value)
-	return this.value[scopeLength+domainLength : scopeLength+domainLength+identifierLength]
+	//fmt.Printf("do=%v, dl=%v, vl=%v, il=%v\n", domainOffset, domainLength, versionLength, identifierLength)
+	return this.value[domainOffset+domainLength : domainOffset+domainLength+identifierLength-versionLength]
 }
 
 func (this *identifier) ScopeId() []byte {
@@ -140,19 +145,46 @@ func (this *identifier) DomainId() []byte {
 }
 
 func (this *identifier) HasVersion() bool {
-	return false
+	return domain.VersionLengthLength(this.value) > 0
 }
 
 func (this *identifier) VersionId() []byte {
-	return nil
+	versionLength := domain.VersionLength(this.value)
+	if versionLength == 0 {
+		return nil
+	}
+	domainOffset := domain.DomainOffset(this.value)
+	domainLength := domain.DomainLength(this.value) + domain.VersionLengthLength(this.value)
+	identifierLength, _ := identifierLength(this.value)
+	return this.value[domainOffset+domainLength+identifierLength-versionLength:]
 }
 
 func (this *identifier) Version() version.Version {
+	versionId := this.VersionId()
+
+	if versionId == nil {
+		return nil
+	}
+
+	vtype, err := domain.VersionTypeValue(this.value)
+
+	if err == nil {
+		switch vtype {
+		case versionType.NUMERIC:
+			return version.NumericVersion(domain.NumericVersionValue(versionId))
+		case versionType.SEMANTIC:
+			result, err := version.Parse(string(versionId))
+			if err == nil {
+				return result
+			}
+		}
+	}
+
 	return nil
 }
 
 func (this *identifier) DomainIdRoot() []byte {
-	return this.value[domain.ScopeLength(this.value)+1 : domain.DomainLength(this.value)-domain.IncarnationLength(this.value)+2]
+	return domain.IdRootValue(this.value)
 }
 
 func (this *identifier) DomainIncarnation() *uint32 {
@@ -179,13 +211,13 @@ func (this *identifier) sign(signatureDomain ids.SignatureDomain) (ids.Signature
 
 func (this *identifier) Scope() (scope ids.DomainScope) {
 	selector := domainScope.Selector{Id: this.ScopeId()}
-	scope, _ = domainScope.Get(selector)
+	scope, _ = domainScope.Get(context.Background(), selector)
 
 	return scope
 }
 
 func (this *identifier) Domain() ids.IdentityDomain {
-	scope, _ := domain.Get(domain.Selector{Scope: this.Scope(), Id: this.DomainId()})
+	scope, _ := domain.Get(context.Background(), domain.Selector{Scope: this.Scope(), Id: this.DomainId()})
 	return scope
 }
 
@@ -361,8 +393,10 @@ func identifierLength(value []byte) (uint, error) {
 		return 0, err
 	}
 
-	length := uint(len(value)) - domain.ScopeLength(value) -
-		(domain.DomainLength(value) + 1) - identifierCrcLength
+	length := uint(len(value)) - domain.DomainOffset(value) -
+		domain.DomainLength(value) - domain.VersionLengthLength(value) -
+		identifierCrcLength
+
 	if length < 0 {
 		return 0, nil
 	}

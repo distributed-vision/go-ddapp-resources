@@ -28,14 +28,14 @@ type identityDomain struct {
 	sequenceIncarnation     *uint32
 }
 
-func unmarshalJSON(json map[string]interface{}, opts map[string]interface{}) (ids.Domain, error) {
+func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}) (ids.Domain, error) {
 	rootId, err := base62.Decode(json["id"].(string))
 
 	if err != nil {
 		return nil, err
 	}
 
-	var incarnation uint32
+	var incarnation *uint32
 	var crcLength uint
 	var versionType = versionType.UNVERSIONED
 
@@ -45,7 +45,7 @@ func unmarshalJSON(json map[string]interface{}, opts map[string]interface{}) (id
 		info[key] = value
 	}
 
-	return NewIdentityDomain(opts["scope"].(ids.DomainScope), rootId, &incarnation, crcLength, versionType, info)
+	return NewIdentityDomain(unmarshalContext.Value("scope").(ids.DomainScope), rootId, incarnation, crcLength, versionType, info)
 }
 
 func NewIdentityDomain(scope ids.DomainScope, rootId []byte, incarnation *uint32, crcLength uint, versionType versionType.VersionType, info map[interface{}]interface{}) (ids.IdentityDomain, error) {

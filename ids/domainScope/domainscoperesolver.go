@@ -15,7 +15,8 @@ import (
 	"github.com/distributed-vision/go-resources/translators"
 )
 
-var entityType ids.TypeIdentifier
+var scopeEntityType ids.TypeIdentifier
+var domainEntityType ids.TypeIdentifier
 
 var untypedDomain []byte = domain.MustDecodeId(encoderType.BASE62, "3", "")
 
@@ -26,7 +27,8 @@ func domainScopeTranslator(translationContext context.Context, fromId ids.Identi
 
 	json := fromValue.(map[string]interface{})
 	json["id"] = string(fromId.Id())
-	toValue, err := unmarshalJSON(json, map[string]interface{}{})
+
+	toValue, err := unmarshalJSON(translationContext, json)
 	//fmt.Printf("val: %+v err: %s\n", toValue, err)
 
 	if err != nil {
@@ -43,12 +45,16 @@ func domainScopeTranslator(translationContext context.Context, fromId ids.Identi
 
 func init() {
 	ids.OnLocalTypeInit(func() {
-		if entityType == nil {
-			entityType = ids.IdOfType(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
+		if scopeEntityType == nil {
+			scopeEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
 		}
 
-		mapType := ids.IdOfType(reflect.TypeOf(map[string]interface{}{}))
-		translators.Register(context.Background(), mapType, entityType, domainScopeTranslator)
+		if domainEntityType == nil {
+			domainEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.Domain)(nil)).Elem())
+		}
+
+		mapType := ids.NewLocalTypeId(reflect.TypeOf(map[string]interface{}{}))
+		translators.Register(context.Background(), mapType, scopeEntityType, domainScopeTranslator)
 	})
 }
 
@@ -94,13 +100,18 @@ func (this *Selector) Key() interface{} {
 }
 
 func (this *Selector) Type() ids.TypeIdentifier {
-	return entityType
+	return scopeEntityType
 }
 
-func Get(selector Selector) (ids.DomainScope, error) {
-	res, err := resolvers.Get(&selector)
+func Get(resolutionContext context.Context, selector Selector) (ids.DomainScope, error) {
+	res, err := resolvers.Get(resolutionContext, &selector)
+
+	if err != nil {
+		return nil, err
+	}
 
 	if scope, ok := res.(ids.DomainScope); ok {
+		scope.RegisterResolvers()
 		return scope, err
 	}
 
@@ -114,17 +125,28 @@ func Resolve(resolutionContext context.Context, selector Selector) (chan ids.Dom
 	cresIn, cerrIn := resolvers.Resolve(resolutionContext, &selector)
 
 	go func() {
-		select {
-		case resIn := <-cresIn:
-			if scope, ok := resIn.(ids.DomainScope); ok {
-				cresOut <- scope
-			} else {
-				cerrOut <- fmt.Errorf("Resolver returned invalid type, expected: ids.DomainScope got: %s", reflect.TypeOf(resIn))
+		resolved := false
+		for !resolved {
+			select {
+			case resIn, ok := <-cresIn:
+				if ok {
+					if resIn != nil {
+						if scope, ok := resIn.(ids.DomainScope); ok {
+							scope.RegisterResolvers()
+							cresOut <- scope
+						} else {
+							cerrOut <- fmt.Errorf("Resolver returned invalid type, expected: ids.DomainScope got: %s", reflect.TypeOf(resIn))
+						}
+						resolved = true
+					}
+				}
+			case errIn, ok := <-cerrIn:
+				if ok {
+					cerrOut <- errIn
+					resolved = true
+				}
 			}
-		case errIn := <-cerrIn:
-			cerrOut <- errIn
 		}
-
 		close(cresOut)
 		close(cerrOut)
 	}()

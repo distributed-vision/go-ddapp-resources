@@ -3,8 +3,10 @@ package signature
 import (
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/identifier"
-	"github.com/distributed-vision/go-resources/resolvers/signatureResolver"
 )
+
+func Init() {
+}
 
 type signature struct {
 	ids.Identifier
@@ -12,7 +14,7 @@ type signature struct {
 }
 
 func NewSignature(domain ids.SignatureDomain, id []byte) (ids.Signature, error) {
-	base, err := identifier.NewIdentifier(domain, id)
+	base, err := identifier.New(domain, id, nil)
 
 	if err != nil {
 		return nil, err
@@ -23,7 +25,7 @@ func NewSignature(domain ids.SignatureDomain, id []byte) (ids.Signature, error) 
 
 func (this *signature) Elements() (ids.SignatureElements, error) {
 	if this.elements == nil {
-		elements, err := signatureResolver.GetElements(this)
+		elements, err := GetElements(this)
 
 		if err != nil {
 			return nil, err

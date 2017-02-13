@@ -17,7 +17,7 @@ var identifiers = make(map[reflect.Type]ids.TypeIdentifier)
 var mapMutex = &sync.Mutex{}
 
 func init() {
-	ids.LocalTypeInit(IdOf)
+	ids.LocalTypeInit(IdOf, types.NewId)
 }
 
 func IdOf(gotype reflect.Type) ids.TypeIdentifier {

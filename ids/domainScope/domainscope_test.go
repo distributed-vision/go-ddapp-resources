@@ -3,45 +3,20 @@ package domainScope_test
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os"
-	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
-	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domainScope"
 	"github.com/distributed-vision/go-resources/ids/domainScopeFormat"
 	"github.com/distributed-vision/go-resources/ids/domainScopeVisibility"
-	"github.com/distributed-vision/go-resources/resolvers"
-	"github.com/distributed-vision/go-resources/resolvers/fileResolver"
-	"github.com/distributed-vision/go-resources/types/gotypeid"
+	"github.com/distributed-vision/go-resources/init/domainscopeinit"
 )
 
 func TestMain(m *testing.M) {
 
 	GetUninitialisedResolver()
-
-	scopePath := os.Getenv("DV_DOMAIN_SCOPE_PATH")
-
-	if scopePath == "" {
-		scopePath = "../../../domain-scope"
-	}
-
-	entityType := gotypeid.IdOf(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
-
-	resolverFactory, err := fileResolver.NewResolverFactory(
-		resolvers.NewResolverInfo([]ids.TypeIdentifier{entityType},
-			map[interface{}]interface{}{
-				"file":  "scopeinfo.json",
-				"paths": filepath.SplitList(scopePath)}))
-
-	if err != nil {
-		panic(fmt.Sprintf("Unexpected error creating resolver factory: %s", err))
-	}
-
-	resolvers.RegisterFactory(resolverFactory)
+	domainscopeinit.Init()
 
 	os.Exit(m.Run())
 }
@@ -68,14 +43,14 @@ func GetUninitialisedResolver() {
 	}
 }
 
-func TestResolveUntypedScope(t *testing.T) {
+func TestGetUntypedScope(t *testing.T) {
 	scopeId, _ := base62.Decode("0")
 	scopeNameSelector := domainScope.Selector{Name: "untyped",
 		Opts: domainScope.SelectorOpts{
 			IgnoreCase:       true,
 			IgnoreWhitespace: true}}
 
-	scope, err := domainScope.Get(domainScope.Selector{Id: scopeId})
+	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
 
 	if err != nil {
 		t.Errorf("ResolveUntypedScope Failed With Error: %s", err)
@@ -102,7 +77,7 @@ func TestResolveUntypedScope(t *testing.T) {
 		}
 	}
 
-	scope, err = domainScope.Get(scopeNameSelector)
+	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
 
 	if err != nil {
 		t.Errorf("ResolveUntypedScope Failed With Error: %s", err)

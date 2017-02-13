@@ -1,16 +1,23 @@
-package identifier
+package identifier_test
 
-import "testing"
+import (
+	"os"
+	"testing"
+
+	"github.com/distributed-vision/go-resources/init/idsinit"
+)
 
 /*
-process.env.DV_DOMAIN_PATH = process.env.DV_DOMAIN_PATH ? process.env.DV_DOMAIN_PATH :
-  '../../../../distributed-vision/scope'
-
 const random = require('../utils/random');
 const crc = require('crc-hash')
 const XXHash = require('xxhash')
 const XXHash64 = XXHash.XXHash64
 */
+
+func TestMain(m *testing.M) {
+	idsinit.Init()
+	os.Exit(m.Run())
+}
 
 func TestCreateXX64Id(t *testing.T) {
 	/*    let scopeId = base62.decode('1')
