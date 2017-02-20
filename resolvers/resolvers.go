@@ -15,199 +15,56 @@ type Selector interface {
 }
 
 type Resolver interface {
+	Get(resolutionContext context.Context, selector Selector) (interface{}, error)
 	Resolve(resolutionContext context.Context, selector Selector) (chan interface{}, chan error)
+	ResolverInfo() ResolverInfo
+}
+
+type MutableResolver interface {
+	Resolver
+	Put(resolutionContext context.Context, entity interface{}) (interface{}, error)
+	Post(resolutionContext context.Context, entity interface{}) (interface{}, error)
+	Delete(resolutionContext context.Context, selector Selector) error
 }
 
 type ResolverInfo interface {
 	ResolverType() ids.TypeIdentifier
-	EntityTypes() []ids.TypeIdentifier
+	ResolvableTypes() []ids.TypeIdentifier
+	ResolvableDomains() []ids.Domain
+	KeyExtractor() KeyExtractor
 	Matches(selector Selector) bool
 	Value(key interface{}) interface{}
 	WithValue(key, value interface{}) ResolverInfo
 	WithValues(values map[interface{}]interface{}) ResolverInfo
+	WithExtractor(keyExtractor KeyExtractor) ResolverInfo
+	DerivedCopy() ResolverInfo
 }
 
 type ResolverFactory interface {
 	ResolverType() ids.TypeIdentifier
 	ResolverInfo() ResolverInfo
-	New(resolutionContext context.Context) (chan Resolver, chan error)
+	New(resolutionContext context.Context) (Resolver, error)
 }
+
+type KeyExtractor func(entity ...interface{}) (interface{}, bool)
+
+var RootInfo = NewResolverInfo(nil, nil, nil, nil, nil)
+var rootResolver, _ = NewCompositeResolver(RootInfo)
 
 func Get(resolutionContext context.Context, selector Selector) (entity interface{}, err error) {
-	cres, cerr := Resolve(resolutionContext, selector)
-
-	if cres == nil || cerr == nil {
-		return nil, fmt.Errorf("resolvers.Get Failed: resolvers.Resolve channels are undefined")
-	}
-
-	resolved := false
-	for !resolved {
-		select {
-		case result, ok := <-cres:
-			if ok {
-				entity = result
-				resolved = true
-			}
-		case error, ok := <-cerr:
-			if ok {
-				err = error
-				resolved = true
-			}
-		}
-	}
-
-	return entity, err
+	return rootResolver.Get(resolutionContext, selector)
 }
-
-type registryEntry struct {
-	entityType ids.TypeIdentifier
-	factory    ResolverFactory
-	resolver   Resolver
-}
-
-var resolverRegistry map[string][]*registryEntry = make(map[string][]*registryEntry)
-var resolverRegistryMutex = &sync.Mutex{}
 
 func Resolve(resolutionContext context.Context, selector Selector) (chan interface{}, chan error) {
-	cResOut := make(chan interface{}, 1)
-	cErrOut := make(chan error, 1)
+	return rootResolver.Resolve(resolutionContext, selector)
+}
 
-	var resolverEntries = []*registryEntry{}
-	var err error
-
-	if selector != nil {
-		//fmt.Printf("reolvers.Resolve: %s: %+v\n", selector.Type(), selector)
-		resolverRegistryMutex.Lock()
-		if entries, ok := resolverRegistry[string(selector.Type().Value())]; ok {
-			for _, entry := range entries {
-				if entry.factory.ResolverInfo().Matches(selector) {
-					resolverEntries = append(resolverEntries, entry)
-				}
-			}
-		} else {
-			err = fmt.Errorf("resolvers.Resolve Failed: no resolver for entity type=%s", selector.Type())
-		}
-		resolverRegistryMutex.Unlock()
-	} else {
-		err = fmt.Errorf("resolvers.Resolve Failed: selector cannot be nil")
-	}
-
-	if err != nil {
-		cErrOut <- err
-		close(cResOut)
-		close(cErrOut)
-		return cResOut, cErrOut
-	}
-
-	if len(resolverEntries) == 0 {
-		cErrOut <- fmt.Errorf("resolvers.Resolve Failed: no resolver for entity type=%s", selector.Type())
-		close(cResOut)
-		close(cErrOut)
-		return cResOut, cErrOut
-	}
-
-	var wg sync.WaitGroup
-	mergeContext, cancel := context.WithCancel(resolutionContext)
-	errors := make([]error, 0)
-	resultMutex := &sync.Mutex{}
-	var result interface{}
-
-	resolve := func(resolverEntry *registryEntry) {
-		defer wg.Done()
-
-		if resolverEntry.resolver == nil {
-			cres, cerr := resolverEntry.factory.New(mergeContext)
-
-			for resolverEntry.resolver == nil {
-				select {
-				case resolver, ok := <-cres:
-					if ok {
-						resolverEntry.resolver = resolver
-					}
-				case err, ok := <-cerr:
-					if ok {
-						errors = append(errors, err)
-						return
-					}
-				case <-mergeContext.Done():
-					return
-				}
-			}
-		}
-
-		//fmt.Printf("Resolve:  %+v\n", resolverEntry)
-		cres, cerr := resolverEntry.resolver.Resolve(mergeContext, selector)
-
-		if cres == nil || cerr == nil {
-			errors = append(errors, fmt.Errorf("Resolve Failed: Resolve channels are undefined"))
-		}
-
-		for result == nil {
-			select {
-			case res, ok := <-cres:
-				if ok {
-					if result == nil {
-						resultMutex.Lock()
-						if result == nil {
-							result = res
-							cancel()
-						}
-						resultMutex.Unlock()
-					}
-					return
-				}
-			case err, ok := <-cerr:
-				if ok {
-					errors = append(errors, err)
-					return
-				}
-			case <-mergeContext.Done():
-				return
-			}
-		}
-	}
-
-	wg.Add(len(resolverEntries))
-	for _, r := range resolverEntries {
-		go resolve(r)
-	}
-
-	go func() {
-		wg.Wait()
-		if result != nil {
-			cResOut <- result
-		} else if len(errors) > 0 {
-			cErrOut <- fmt.Errorf("Resolve failed with the following errors %v", errors)
-		}
-		close(cResOut)
-		close(cErrOut)
-	}()
-
-	return cResOut, cErrOut
+func RegisterResolver(resolver Resolver) {
+	rootResolver.RegisterComponent(resolver)
 }
 
 func RegisterFactory(resolverFactory ResolverFactory) {
-	resolverRegistryMutex.Lock()
-	defer resolverRegistryMutex.Unlock()
-
-	for _, entityType := range resolverFactory.ResolverInfo().EntityTypes() {
-
-		if entries, ok := resolverRegistry[string(entityType.Value())]; ok {
-			for _, entry := range entries {
-				if entry.factory.ResolverType().Equals(resolverFactory.ResolverType()) {
-					// ignore duplicate entries
-					// TODO look at resolver info to determine duplication
-					return
-				}
-			}
-
-			resolverRegistry[string(entityType.Value())] = append(entries, &registryEntry{entityType, resolverFactory, nil})
-		} else {
-			entries = []*registryEntry{&registryEntry{entityType, resolverFactory, nil}}
-			resolverRegistry[string(entityType.Value())] = entries
-		}
-
-	}
+	rootResolver.RegisterComponentFactory(resolverFactory, false)
 }
 
 type NewFactoryFunction func(resolverInfo ResolverInfo) (ResolverFactory, error)
@@ -234,23 +91,28 @@ func ResisterNewFactoryFunction(resolverType ids.TypeIdentifier, newFactoryFunct
 }
 
 type resolverInfo struct {
-	resolverType ids.TypeIdentifier
-	entityTypes  []ids.TypeIdentifier
-	//entityDomains []ids.Domain
-	values map[interface{}]interface{}
-	parent ResolverInfo
+	resolverType      ids.TypeIdentifier
+	resolvableTypes   []ids.TypeIdentifier
+	resolvableDomains []ids.Domain
+	keyExtractor      KeyExtractor
+	values            map[interface{}]interface{}
+	parent            ResolverInfo
 }
 
-func NewResolverInfo(resolverType ids.TypeIdentifier, entityTypes []ids.TypeIdentifier, values map[interface{}]interface{}) ResolverInfo {
-	return &resolverInfo{resolverType, entityTypes, values, nil}
+func NewResolverInfo(resolverType ids.TypeIdentifier, resolvableTypes []ids.TypeIdentifier, resolvableDomains []ids.Domain, keyExtractor KeyExtractor, values map[interface{}]interface{}) ResolverInfo {
+	return &resolverInfo{resolverType, resolvableTypes, resolvableDomains, keyExtractor, values, nil}
 }
 
 func (this *resolverInfo) ResolverType() ids.TypeIdentifier {
 	return this.resolverType
 }
 
-func (this *resolverInfo) EntityTypes() []ids.TypeIdentifier {
-	return this.entityTypes
+func (this *resolverInfo) ResolvableTypes() []ids.TypeIdentifier {
+	return this.resolvableTypes
+}
+
+func (this *resolverInfo) ResolvableDomains() []ids.Domain {
+	return this.resolvableDomains
 }
 
 func (this *resolverInfo) Value(key interface{}) (res interface{}) {
@@ -266,15 +128,64 @@ func (this *resolverInfo) Value(key interface{}) (res interface{}) {
 }
 
 func (this *resolverInfo) Matches(selector Selector) bool {
-	return true
+	if this.resolvableTypes != nil && selector.Type() != nil {
+		for _, resolvableType := range this.resolvableTypes {
+			if resolvableType.Equals(selector.Type()) {
+				return true
+			}
+		}
+	} else {
+		return true
+	}
+
+	return false
+}
+
+func (this *resolverInfo) KeyExtractor() KeyExtractor {
+	return this.keyExtractor
+}
+
+func (this *resolverInfo) DerivedCopy() ResolverInfo {
+	var resolvableTypes []ids.TypeIdentifier
+	var resolvableDomains []ids.Domain
+
+	if this.resolvableTypes != nil {
+		resolvableTypes = make([]ids.TypeIdentifier, len(this.ResolvableTypes()))
+		copy(resolvableTypes, this.ResolvableTypes())
+	}
+
+	if resolvableDomains != nil {
+		resolvableDomains = make([]ids.Domain, len(this.ResolvableDomains()))
+		copy(resolvableDomains, this.ResolvableDomains())
+	}
+
+	return &resolverInfo{this.resolverType,
+		resolvableTypes,
+		resolvableDomains,
+		this.keyExtractor,
+		nil, this}
+}
+
+func (this *resolverInfo) WithExtractor(keyExtractor KeyExtractor) ResolverInfo {
+	return &resolverInfo{this.resolverType,
+		this.resolvableTypes,
+		this.resolvableDomains,
+		keyExtractor, nil, this}
 }
 
 func (this *resolverInfo) WithValue(key, value interface{}) ResolverInfo {
 	values := make(map[interface{}]interface{})
 	values[key] = value
-	return &resolverInfo{this.resolverType, this.entityTypes, values, this}
+	return &resolverInfo{this.resolverType,
+		this.resolvableTypes,
+		this.resolvableDomains,
+		this.keyExtractor, values, this}
 }
 
 func (this *resolverInfo) WithValues(values map[interface{}]interface{}) ResolverInfo {
-	return &resolverInfo{this.resolverType, this.entityTypes, values, this}
+	return &resolverInfo{this.resolverType,
+		this.resolvableTypes,
+		this.resolvableDomains,
+		this.keyExtractor,
+		values, this}
 }

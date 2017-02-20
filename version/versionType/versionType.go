@@ -1,4 +1,4 @@
-package versionType
+package versiontype
 
 import (
 	"errors"

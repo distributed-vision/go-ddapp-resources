@@ -2,17 +2,19 @@ package domain
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"reflect"
 
 	"github.com/distributed-vision/go-resources/encoding"
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/base62"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
-	"github.com/distributed-vision/go-resources/version/versionType"
-	"github.com/howeyc/crc16"
-	"github.com/sigurn/crc8"
+	"github.com/distributed-vision/go-resources/resolvers"
+	"github.com/distributed-vision/go-resources/util/hton"
+	"github.com/distributed-vision/go-resources/util/ntoh"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
 var DomainPathKey = "DV_DOMAIN_PATH"
@@ -24,19 +26,51 @@ type domain struct {
 	idRoot      []byte
 	incarnation *uint32
 	crcLength   uint
-	versionType versionType.VersionType
+	versionType versiontype.VersionType
 	typeId      ids.TypeIdentifier
 	info        map[interface{}]interface{}
 }
 
+func KeyExtractor(entity ...interface{}) (interface{}, bool) {
+	if len(entity) > 0 {
+		if domain, ok := entity[0].(ids.Domain); ok {
+			id, err := ToId(domain.ScopeId(), domain.IdRoot(), nil, 0, versiontype.UNVERSIONED)
+
+			if err == nil {
+				return base62.Encode(id), true
+			}
+		}
+	}
+	return nil, false
+}
+
+func Await(cres chan ids.Domain, cerr chan error) (result ids.Domain, err error) {
+	if cres == nil || cerr == nil {
+		return nil, fmt.Errorf("Await Failed: channels are undefined")
+	}
+
+	resolved := false
+	for !resolved {
+		select {
+		case res, ok := <-cres:
+			if ok {
+				result = res
+				resolved = true
+			}
+		case error, ok := <-cerr:
+			if ok {
+				err = error
+				resolved = true
+			}
+		}
+	}
+
+	return result, err
+}
+
 var empty = []byte{}
 
-func NewDomain(scope ids.DomainScope, idRoot []byte, incarnation *uint32, crcLength uint, versionType versionType.VersionType, info map[interface{}]interface{}) (ids.Domain, error) {
-	scopeId := empty
-
-	if scope != nil {
-		scopeId = scope.Id()
-	}
+func New(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType, infos ...map[interface{}]interface{}) (ids.Domain, error) {
 
 	id, err := ToId(scopeId, idRoot, incarnation, crcLength, versionType)
 	//fmt.Printf("id=%v\n", id)
@@ -44,9 +78,20 @@ func NewDomain(scope ids.DomainScope, idRoot []byte, incarnation *uint32, crcLen
 		return nil, err
 	}
 
+	var info map[interface{}]interface{}
+
+	if len(infos) > 0 {
+		info = make(map[interface{}]interface{})
+		for _, infoVal := range infos {
+			for key, value := range infoVal {
+				info[key] = value
+			}
+		}
+	}
+
 	return &domain{
 		id:          id,
-		scope:       scope,
+		scope:       nil,
 		idRoot:      idRoot,
 		incarnation: incarnation,
 		crcLength:   crcLength,
@@ -54,28 +99,88 @@ func NewDomain(scope ids.DomainScope, idRoot []byte, incarnation *uint32, crcLen
 		info:        info}, nil
 }
 
-func (this *domain) NewIncarnation(incarnation uint32, crcLength uint, info map[interface{}]interface{}) (ids.Domain, error) {
+func Wrap(id []byte) ids.Domain {
+	crcLength, _ := CrcLengthValue(id)
+	versionType, _ := VersionTypeValue(id)
 
-	id, err := ToId(this.scope.Id(), this.idRoot, &incarnation, crcLength, this.versionType)
+	return &domain{
+		id:          id,
+		scope:       nil,
+		idRoot:      IdRootValue(id),
+		incarnation: IncarnationValue(id),
+		crcLength:   crcLength,
+		versionType: versionType}
+}
+
+func WithIncarnation(root ids.Domain, incarnation uint32, crcLength uint, infos ...map[interface{}]interface{}) (ids.Domain, error) {
+
+	id, err := ToId(root.ScopeId(), root.IdRoot(), &incarnation, crcLength, root.VersionType())
 
 	if err != nil {
 		return nil, err
 	}
 
+	var info map[interface{}]interface{}
+
+	if len(infos) > 0 {
+		info = make(map[interface{}]interface{})
+		for _, infoVal := range infos {
+			for key, value := range infoVal {
+				info[key] = value
+			}
+		}
+	}
+
 	return &domain{
 		id:          id,
-		scope:       this.Scope(),
-		root:        this,
-		idRoot:      this.idRoot,
+		scope:       nil,
+		root:        root,
+		idRoot:      root.IdRoot(),
 		incarnation: &incarnation,
 		crcLength:   crcLength,
-		versionType: this.versionType,
+		versionType: root.VersionType(),
+		info:        info}, nil
+}
+
+func WithCrc(root ids.Domain, crcLength uint, infos ...map[interface{}]interface{}) (ids.IdentityDomain, error) {
+
+	id, err := ToId(root.ScopeId(), root.IdRoot(), nil, crcLength, root.VersionType())
+
+	if err != nil {
+		return nil, err
+	}
+
+	var info map[interface{}]interface{}
+
+	if len(infos) > 0 {
+		info = make(map[interface{}]interface{})
+		for _, infoVal := range infos {
+			for key, value := range infoVal {
+				info[key] = value
+			}
+		}
+	}
+
+	var incarnation uint32
+
+	if root.Incarnation() != nil {
+		incarnation = *root.Incarnation()
+	}
+
+	return &domain{
+		id:          id,
+		scope:       nil,
+		root:        root,
+		idRoot:      root.IdRoot(),
+		incarnation: &incarnation,
+		crcLength:   crcLength,
+		versionType: root.VersionType(),
 		info:        info}, nil
 }
 
 var featureBit byte = (1 << 6)
 
-func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versionType.VersionType) ([]byte, error) {
+func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType) ([]byte, error) {
 
 	var incarnationSlice = IncarnationAsBytes(incarnation)
 
@@ -88,7 +193,7 @@ func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, ve
 	var unscopedlenSlice []byte
 	featureSlice := empty
 
-	if len(scopeId) == 0 {
+	if scopeId == nil || len(scopeId) == 0 {
 		unscopedlenSlice = empty
 	} else {
 		incarnationLengthBits, err := IncarnationLengthBits(incarnationSlice)
@@ -123,12 +228,12 @@ func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, ve
 	return bytes.Join([][]byte{scopeId, unscopedlenSlice, featureSlice, unscoped}, empty), nil
 }
 
-func DecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string, features ...interface{}) ([]byte, error) {
+func DecodeId(encoderType encodertype.EncoderType, scopeId string, rootId string, features ...interface{}) ([]byte, error) {
 	var scopeIdValue []byte
 	var idRootValue []byte
 	var incarnationValue *uint32 = nil
 	var crcLengthValue uint = 0
-	var versionTypeValue versionType.VersionType = versionType.UNVERSIONED
+	var versionTypeValue versiontype.VersionType = versiontype.UNVERSIONED
 	var err error
 
 	scopeIdValue, err = encoding.Decode(scopeId, encoderType)
@@ -163,7 +268,7 @@ func DecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string
 	}
 
 	if len(features) > 2 {
-		if feature, ok := features[2].(versionType.VersionType); ok {
+		if feature, ok := features[2].(versiontype.VersionType); ok {
 			versionTypeValue = feature
 		} else {
 			return nil, fmt.Errorf("Invalid versionType type expected: versionType.VersionType, got: %s", reflect.ValueOf(features[1]).Type())
@@ -173,7 +278,7 @@ func DecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string
 	return ToId(scopeIdValue, idRootValue, incarnationValue, crcLengthValue, versionTypeValue)
 }
 
-func MustDecodeId(encoderType encoderType.EncoderType, scopeId string, rootId string, features ...interface{}) []byte {
+func MustDecodeId(encoderType encodertype.EncoderType, scopeId string, rootId string, features ...interface{}) []byte {
 	id, err := DecodeId(encoderType, scopeId, rootId, features...)
 
 	if err != nil {
@@ -234,16 +339,16 @@ func (this *domain) SetIfChanged(idRoot []byte, incarnation *uint32) bool {
 }
 
 func (this *domain) String() string {
-	return this.Encode(encoderType.BASE62)
+	return this.Encode(encodertype.BASE62)
 }
 
-func (this *domain) Encode(encoder encoderType.EncoderType) string {
-	str, _ := encoding.Encode(this.id, encoder)
+func (this *domain) Encode(encoderType encodertype.EncoderType) string {
+	str, _ := encoding.Encode(this.id, encoderType)
 	return str
 }
 
 func (this *domain) ToJSON() string {
-	return this.Encode(encoderType.BASE62)
+	return this.Encode(encodertype.BASE62)
 }
 
 func (this *domain) IsFor(typeId ids.TypeIdentifier) bool {
@@ -253,10 +358,10 @@ func (this *domain) IsFor(typeId ids.TypeIdentifier) bool {
 
 func (this *domain) Matches(domain ids.Domain) bool {
 	idRoot := domain.IdRoot()
-	scope := domain.Scope()
+	scopeId := domain.ScopeId()
 
 	if this.idRoot == nil {
-		return bytes.Equal(this.scope.Id(), scope.Id())
+		return bytes.Equal(this.scope.Id(), scopeId)
 	}
 	return bytes.Equal(this.idRoot, idRoot)
 }
@@ -266,10 +371,20 @@ func (this *domain) Id() []byte {
 }
 
 func (this *domain) ScopeId() []byte {
-	return this.id[:ScopeLength(this.id)]
+	return ScopeId(this.id)
 }
 
 func (this *domain) Scope() ids.DomainScope {
+	if this.scope == nil {
+		if this.root != nil {
+			return this.root.Scope()
+		} else {
+			res, err := resolvers.Get(context.Background(), &scopeSelector{this.ScopeId()})
+			if err == nil {
+				this.scope = res.(ids.DomainScope)
+			}
+		}
+	}
 	return this.scope
 }
 
@@ -285,7 +400,15 @@ func (this *domain) CrcLength() uint {
 	return this.crcLength
 }
 
-func (this *domain) VersionType() versionType.VersionType {
+func (this *domain) IsRootOf(domain ids.Domain) bool {
+	return this.IsRoot() && bytes.Equal(domain.IdRoot(), this.IdRoot())
+}
+
+func (this *domain) IsRoot() bool {
+	return this.incarnation == nil && this.crcLength == 0
+}
+
+func (this *domain) VersionType() versiontype.VersionType {
 	return this.versionType
 }
 
@@ -415,83 +538,61 @@ func CrcLengthValue(value []byte) (uint, error) {
 	}
 }
 
-func VersionTypeBits(verType versionType.VersionType) (byte, error) {
-	switch verType {
-	case versionType.UNVERSIONED:
+func VersionTypeBits(versionType versiontype.VersionType) (byte, error) {
+	switch versionType {
+	case versiontype.UNVERSIONED:
 		return 0, nil
-	case versionType.NUMERIC:
+	case versiontype.NUMERIC:
 		return 1 << 4, nil
-	case versionType.SEMANTIC:
+	case versiontype.SEMANTIC:
 		return 2 << 4, nil
 	default:
 		return 0, errors.New("Invalid version type")
 	}
 }
 
-func VersionTypeValue(value []byte) (versionType.VersionType, error) {
+func VersionTypeValue(value []byte) (versiontype.VersionType, error) {
 
 	featureSlice := featureSlice(value)
 
 	if featureSlice == nil {
-		return versionType.UNVERSIONED, nil
+		return versiontype.UNVERSIONED, nil
 	}
 
 	bits := (featureSlice[0] >> 4) & 0x03
 	switch bits {
 	case 0:
-		return versionType.UNVERSIONED, nil
+		return versiontype.UNVERSIONED, nil
 	case 1:
-		return versionType.NUMERIC, nil
+		return versiontype.NUMERIC, nil
 	case 2:
-		return versionType.SEMANTIC, nil
+		return versiontype.SEMANTIC, nil
 	}
 
-	return versionType.UNVERSIONED, errors.New("Invalid version type")
-}
-
-func VersionLength(value []byte) uint {
-	lengthLength := VersionLengthLength(value)
-
-	if lengthLength > 0 {
-		domainOffset := ScopeLength(value) + 1 + featureSliceLength(value)
-		domainLength := DomainLength(value)
-		return uint(value[domainOffset+domainLength])
-	}
-
-	return 0
-}
-
-func NumericVersionValue(versionValue []byte) uint32 {
-	vlen := len(versionValue)
-	if vlen > 0 {
-		if vlen == 1 {
-			return uint32(versionValue[0])
-		}
-		if vlen == 2 {
-			return uint32(ntohs(versionValue, 0))
-		}
-		return ntohl(versionValue, 0)
-	}
-
-	return 0
+	return versiontype.UNVERSIONED, errors.New("Invalid version type")
 }
 
 func VersionLengthLength(value []byte) uint {
 	vt, err := VersionTypeValue(value)
 	if err == nil {
-		if vt != versionType.UNVERSIONED {
+		if vt != versiontype.UNVERSIONED {
 			return 1
 		}
 	}
 	return 0
 }
 
+var extensionBit byte = (1 << 6)
+
 func ScopeLength(value []byte) uint {
-	switch value[0] & 0x3f {
-	// TODO handle named scopes
-	default:
-		return 1
+	if (value[0] & extensionBit) != 0 {
+		return uint(value[1] + 2)
 	}
+	return 1
+}
+
+func ScopeId(value []byte) []byte {
+	return value[:ScopeLength(value)]
 }
 
 func IncarnationAsBytes(incarnation *uint32) []byte {
@@ -503,10 +604,10 @@ func IncarnationAsBytes(incarnation *uint32) []byte {
 		incarnationSlice = []byte{byte(*incarnation & 0xff)}
 	} else if *incarnation < 0xffff {
 		buf := [2]byte{0, 0}
-		incarnationSlice = htons(buf[:], 0, uint16(*incarnation&0xffff))
+		incarnationSlice = hton.U16(buf[:], 0, uint16(*incarnation&0xffff))
 	} else {
 		buf := [4]byte{0, 0, 0, 0}
-		incarnationSlice = htonl(buf[:], 0, *incarnation)
+		incarnationSlice = hton.U32(buf[:], 0, *incarnation)
 	}
 
 	return incarnationSlice
@@ -516,16 +617,16 @@ func IncarnationValue(value []byte) *uint32 {
 	incLen := IncarnationLength(value)
 	if incLen > 0 {
 		incOffset := ScopeLength(value) +
-			DomainLength(value) + featureSliceLength(value) - incLen + 1
+			DomainLength(value) + FeatureSliceLength(value) - incLen + 1
 		if incLen == 1 {
 			res := uint32(value[incOffset])
 			return &res
 		}
 		if incLen == 2 {
-			res := uint32(ntohs(value, int(incOffset)))
+			res := uint32(ntoh.U16(value, int(incOffset)))
 			return &res
 		}
-		res := ntohl(value, int(incOffset))
+		res := ntoh.U32(value, int(incOffset))
 		return &res
 	}
 
@@ -547,7 +648,7 @@ func DomainLength(value []byte) uint {
 }
 
 func DomainOffset(value []byte) uint {
-	return ScopeLength(value) + 1 + featureSliceLength(value)
+	return ScopeLength(value) + 1 + FeatureSliceLength(value)
 }
 
 func IdRootValue(value []byte) []byte {
@@ -560,62 +661,12 @@ func featureSlice(value []byte) []byte {
 		featurePos := ScopeLength(value) + 1
 		return value[featurePos : featurePos+1]
 	}
-
 	return nil
 }
 
-func featureSliceLength(value []byte) uint {
+func FeatureSliceLength(value []byte) uint {
 	if value[ScopeLength(value)]>>6 > 0 {
 		return 1
 	}
-
 	return 0
-}
-
-var crc8Table *crc8.Table = crc8.MakeTable(crc8.CRC8_MAXIM)
-var crc16Table *crc16.Table = crc16.MakeTable(crc16.IBM)
-var crc32Table *crc32.Table = crc32.MakeTable(crc32.IEEE)
-
-func CrcCalc(value []byte, crcLength uint) ([]byte, error) {
-	switch crcLength {
-	case 0:
-		return make([]byte, 0), nil
-	case 8:
-		buf := [1]byte{crc8.Checksum(value, crc8Table)}
-		return buf[:], nil
-	case 16:
-		buf := make([]byte, 2)
-		return htons(buf, 0, crc16.Checksum(value, crc16Table)), nil
-	case 32:
-		buf := make([]byte, 4)
-		return htonl(buf, 0, crc32.Checksum(value, crc32Table)), nil
-	default:
-		return nil, errors.New("Invalid crc length")
-	}
-}
-
-func ntohl(buffer []byte, index int) uint32 {
-	return (uint32(0xff&buffer[index]) << 24) |
-		(uint32(0xff&buffer[index+1]) << 16) |
-		(uint32(0xff&buffer[index+2]) << 8) |
-		uint32(0xff&buffer[index+3])
-}
-
-func ntohs(buffer []byte, index int) uint16 {
-	return uint16(0xff&buffer[index])<<8 |
-		uint16(0xff&buffer[index+1])
-}
-
-func htonl(buffer []byte, index int, value uint32) []byte {
-	buffer[index] = byte(0xff & (value >> 24))
-	buffer[index+1] = byte(0xff & (value >> 16))
-	buffer[index+2] = byte(0xff & (value >> 8))
-	buffer[index+3] = byte(0xff & (value))
-	return buffer
-}
-
-func htons(buffer []byte, index int, value uint16) []byte {
-	buffer[index] = byte(0xff & (value >> 8))
-	buffer[index+1] = byte(0xff & (value))
-	return buffer
 }

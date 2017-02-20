@@ -1,4 +1,4 @@
-package domainScopeVisibility
+package domainscopevisibility
 
 import (
 	"errors"

@@ -1,18 +1,23 @@
 package identifier_test
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"testing"
 
+	"github.com/OneOfOne/xxhash"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
+	"github.com/distributed-vision/go-resources/ids/domain"
+	"github.com/distributed-vision/go-resources/ids/identifier"
+	"github.com/distributed-vision/go-resources/ids/identitydomain"
 	"github.com/distributed-vision/go-resources/init/idsinit"
+	"github.com/distributed-vision/go-resources/util/hton"
+	"github.com/distributed-vision/go-resources/util/ntoh"
+	"github.com/distributed-vision/go-resources/util/random"
+	"github.com/howeyc/crc16"
+	"github.com/sigurn/crc8"
 )
-
-/*
-const random = require('../utils/random');
-const crc = require('crc-hash')
-const XXHash = require('xxhash')
-const XXHash64 = XXHash.XXHash64
-*/
 
 func TestMain(m *testing.M) {
 	idsinit.Init()
@@ -20,99 +25,171 @@ func TestMain(m *testing.M) {
 }
 
 func TestCreateXX64Id(t *testing.T) {
-	/*    let scopeId = base62.decode('1')
-	      let domainId = base62.decode('0')
 
-	      return DomainScopeResolver.resolve(scopeId)
-	        .then(scope => scope.resolve(domainId))
-	        .then(domain => {
-	          let value = Buffer.from(random.genRandomString(64))
-	          let xx = new XXHash64(0xCAFEBABE);
-	          xx.update(value)
-	          let xxdigest = new Buffer(8);
-	          xx.digest(xxdigest)
+	domain, err := domain.Get(context.Background(), domain.Selector{Id: domain.MustDecodeId(encodertype.BASE62, "1", "0")})
 
-	          let id = new Identifier(domain, xxdigest)
+	if err != nil {
+		t.Errorf("TestCreateXX64Id: domain.Get failed: %s", err)
+		return
+	}
 
-	          should.ok(id.domainId.equals(domain.id))
-	          should.ok(id.id.equals(xxdigest))
-	          should.ok(id.scopeId.equals(domain.scopeId))
-	          should(id.checksum).be.null
-	        })*/
+	value := random.RandomBytes(64)
+	hash := xxhash.Checksum64S(value, 0xCAFEBABE)
+	idbuf := make([]byte, 8)
+
+	id, err := identifier.New(domain, hton.U64(idbuf, 0, hash))
+
+	if err != nil {
+		t.Errorf("TestCreateXX64Id: identifier.New failed: %s", err)
+		return
+	}
+
+	if !bytes.Equal(id.DomainId(), domain.Id()) {
+		t.Errorf("TestDomainWithCrc Failed: id.DomainId != domain.Id: expected: '%s' got '%s'", id.DomainId(), domain.Id())
+	}
+
+	if !bytes.Equal(id.Id(), idbuf) {
+		t.Errorf("TestDomainWithCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
+	}
+
+	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
+		t.Errorf("TestDomainWithCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	}
+
+	if id.Checksum() != nil {
+		t.Errorf("TestDomainWithCrc Failed: unexpected checksum")
+	}
 }
+
+var crc8Table *crc8.Table = crc8.MakeTable(crc8.CRC8_MAXIM)
+var crc16Table *crc16.Table = crc16.MakeTable(crc16.IBM)
 
 func TestCreateXX64IdWithCrc(t *testing.T) {
-	/*let scopeId = base62.decode('1')
-	  let domainId = base62.decode('0')
+	domain, err := domain.Get(context.Background(), domain.Selector{Id: domain.MustDecodeId(encodertype.BASE62, "1", "0")})
 
-	  return DomainScopeResolver.resolve(scopeId)
-	    .then(scope => scope.resolve(domainId))
-	    .then(domain => {
+	if err != nil {
+		t.Errorf("TestCreateXX64IdWithCrc: domain.Get failed: %s", err)
+		return
+	}
 
-	      let crc8 = new IdentityDomain(domain.scope, domain, undefined, 8)
+	crc8d, err := identitydomain.WithCrc(domain, 8)
 
-	      let value = Buffer.from(random.genRandomString(64))
-	      let xx = new XXHash64(0xCAFEBABE);
-	      xx.update(value)
-	      let xxdigest = new Buffer(8);
-	      xx.digest(xxdigest)
+	value := random.RandomBytes(64)
+	hash := xxhash.Checksum64S(value, 0xCAFEBABE)
+	idbuf := make([]byte, 8)
 
-	      let id = new Identifier(domain, xxdigest)
-	      let crcid = new Identifier(crc8, xxdigest)
-	      let cs = crc.createHash("crc8").update(
-	        crcid.value.slice(0, crcid.value.length - 1)).digest();
+	id, err := identifier.New(domain, hton.U64(idbuf, 0, hash))
 
-	      should.ok(id.domainId.equals(domain.id))
-	      should.ok(id.id.equals(xxdigest))
-	      should.ok(id.scopeId.equals(domain.scopeId))
-	      should(id.checksum).be.null
-	      should.ok(id.isValid)
+	crcid, err := identifier.New(crc8d, idbuf)
 
-	      should.ok(crcid.domainId.equals(crc8.id))
-	      should.ok(crcid.domainIdRoot.equals(crc8.idRoot))
-	      should.ok(crcid.domainIdRoot.equals(id.domainIdRoot))
-	      should.ok(crcid.id.equals(xxdigest))
-	      should.ok(crcid.scopeId.equals(domain.scopeId))
-	      should.ok(crcid.checksum.equals(cs))
-	      should.ok(crcid.isValid)
+	cs := crc8.Checksum(crcid.Value()[:len(crcid.Value())-1], crc8Table)
 
-	      should(id.toString('base62', 'base62')).equal(crcid.toString('base62', 'base62'))
-	    })*/
+	if !bytes.Equal(id.DomainId(), domain.Id()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: id.DomainId != domain.Id: expected: '%s' got '%s'", id.DomainId(), domain.Id())
+	}
+	if !bytes.Equal(id.Id(), idbuf) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
+	}
+	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	}
+	if id.Checksum() != nil {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: unexpected checksum")
+	}
+	if !id.IsValid() {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: invalid id")
+	}
+
+	if !bytes.Equal(crcid.DomainId(), crc8d.Id()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.DomainId != crc8d.Id: expected: '%s' got '%s'", crcid.DomainId(), crc8d.Id())
+	}
+	if !bytes.Equal(crcid.DomainIdRoot(), crc8d.IdRoot()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.DomainIdRoot != crc8d.IdRoot: expected: '%s' got '%s'", crcid.DomainIdRoot(), crc8d.IdRoot())
+	}
+	if !bytes.Equal(crcid.DomainIdRoot(), id.DomainIdRoot()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.DomainIdRoot != id.DomainIdRoot: expected: '%s' got '%s'", crcid.DomainIdRoot(), id.DomainIdRoot())
+	}
+	if !bytes.Equal(crcid.Id(), idbuf) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.Id: expected: '%s' got '%s'", idbuf, crcid.Id())
+	}
+
+	if !bytes.Equal(crcid.ScopeId(), domain.ScopeId()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.ScopeId != domain.ScopeId: expected: '%s' got '%s'", crcid.ScopeId(), domain.ScopeId())
+	}
+
+	if ntoh.U8(crcid.Checksum(), 0) != cs {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.Checksum: expected: '%v' got '%v'", cs, crcid.Checksum())
+	}
+
+	if !crcid.IsValid() {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: invalid crcid")
+	}
+
+	// if !id.toString('base62', 'base62')).equal(crcid.toString('base62', 'base62')) {
+
+	//}
 }
 
-func TestCreateXX64IdWithIncarnationCrc(t *testing.T) {
-	/*let scopeId = base62.decode('1')
-	  let domainId = base62.decode('0')
+func TestCreateXX64IdWithIncarnationAndCrc(t *testing.T) {
+	domain, err := domain.Get(context.Background(), domain.Selector{Id: domain.MustDecodeId(encodertype.BASE62, "1", "0")})
 
-	  return DomainScopeResolver.resolve(scopeId)
-	    .then(scope => scope.resolve(domainId))
-	    .then(domain => {
+	if err != nil {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc: domain.Get failed: %s", err)
+		return
+	}
 
-	      let crc16_30 = new IdentityDomain(domain.scope, domain, 30, 16)
+	crc16_30, err := identitydomain.WithIncarnation(domain, 30, 16)
 
-	      let value = Buffer.from(random.genRandomString(64))
-	      let xx = new XXHash64(0xCAFEBABE);
-	      xx.update(value)
-	      let xxdigest = new Buffer(8);
-	      xx.digest(xxdigest)
+	value := random.RandomBytes(64)
+	hash := xxhash.Checksum64S(value, 0xCAFEBABE)
+	idbuf := make([]byte, 8)
 
-	      let id = new Identifier(domain, xxdigest)
-	      let crcid = new Identifier(crc16_30, xxdigest)
-	      let cs = crc.createHash("crc16").update(
-	        crcid.value.slice(0, crcid.value.length - 2)).digest();
+	id, err := identifier.New(domain, hton.U64(idbuf, 0, hash))
 
-	      should.ok(id.domainId.equals(domain.id))
-	      should.ok(id.id.equals(xxdigest))
-	      should.ok(id.scopeId.equals(domain.scopeId))
-	      should(id.checksum).be.null
-	      should.ok(id.isValid)
+	crcid, err := identifier.New(crc16_30, idbuf)
 
-	      should.ok(crcid.domainId.equals(crc16_30.id))
-	      should(crcid.domainIncarnation).equal(crc16_30.incarnation)
-	      should.ok(crcid.id.equals(xxdigest))
-	      should.ok(crcid.scopeId.equals(domain.scopeId))
-	      should.ok(crcid.checksum.equals(cs))
-	      should.ok(crcid.isValid)
-	    })
-	})*/
+	cs := crc16.Checksum(crcid.Value()[:len(crcid.Value())-2], crc16Table)
+
+	if !bytes.Equal(id.DomainId(), domain.Id()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.DomainId != domain.Id: expected: '%s' got '%s'", id.DomainId(), domain.Id())
+	}
+	if !bytes.Equal(id.Id(), idbuf) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
+	}
+	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	}
+	if id.Checksum() != nil {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: unexpected checksum: %v", id.Checksum())
+	}
+	if !id.IsValid() {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: invalid id")
+	}
+
+	if !bytes.Equal(crcid.DomainId(), crc16_30.Id()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.DomainId != crc16_30.Id: expected: '%v' got '%v'", crcid.DomainId(), crc16_30.Id())
+	}
+	if !bytes.Equal(crcid.DomainIdRoot(), crc16_30.IdRoot()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.DomainIdRoot != crc16_30.IdRoot: expected: '%s' got '%s'", crcid.DomainIdRoot(), crc16_30.IdRoot())
+	}
+	if !bytes.Equal(crcid.DomainIdRoot(), id.DomainIdRoot()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.DomainIdRoot != id.DomainIdRoot: expected: '%s' got '%s'", crcid.DomainIdRoot(), id.DomainIdRoot())
+	}
+	if !bytes.Equal(crcid.Id(), idbuf) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.Id: expected: '%s' got '%s'", idbuf, crcid.Id())
+	}
+
+	if !bytes.Equal(crcid.ScopeId(), domain.ScopeId()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.ScopeId != domain.ScopeId: expected: '%s' got '%s'", crcid.ScopeId(), domain.ScopeId())
+	}
+	if ntoh.U16(crcid.Checksum(), 0) != cs {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.Checksum: expected: '%v' got '%v'", cs, ntoh.U16(crcid.Checksum(), 0))
+	}
+	if !crcid.IsValid() {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: invalid crcid")
+	}
+
+	// if !id.toString('base62', 'base62')).equal(crcid.toString('base62', 'base62')) {
+
+	//}
 }

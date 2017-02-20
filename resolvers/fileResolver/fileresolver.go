@@ -9,7 +9,7 @@ import (
 	"path"
 	"reflect"
 
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
 	"github.com/distributed-vision/go-resources/ids/identifier"
@@ -19,6 +19,7 @@ import (
 	"github.com/distributed-vision/go-resources/types"
 	"github.com/distributed-vision/go-resources/types/gotypeid"
 	"github.com/distributed-vision/go-resources/types/publictypeid"
+	"github.com/distributed-vision/go-resources/util"
 	"github.com/distributed-vision/go-resources/version"
 )
 
@@ -27,13 +28,14 @@ var contentType ids.TypeIdentifier = gotypeid.IdOf(reflect.TypeOf(map[string]int
 type fileResolver struct {
 	path         string
 	resolverInfo resolvers.ResolverInfo
-	entityMap    map[string]interface{}
+	entityMap    map[interface{}]interface{}
 }
 
 var resolverMap map[string]*fileResolver = make(map[string]*fileResolver)
 var resolverType ids.TypeIdentifier = gotypeid.IdOf(reflect.TypeOf(fileResolver{}))
-var publicTypeVersion = version.SemanticVersion{Major: 0, Minor: 0, Patch: 1}
-var PublicType = types.MustNewId(publictypeid.ResolverDomain, []byte("FileResolver"), &publicTypeVersion)
+var publicTypeVersion = version.New(0, 0, 1)
+
+var PublicType = types.MustNewId(publictypeid.ResolverDomain, []byte("FileResolver"), publicTypeVersion)
 
 func init() {
 	mappings.Add(resolverType, PublicType, nil, nil)
@@ -48,6 +50,12 @@ func ResolverType() ids.TypeIdentifier {
 	return resolverType
 }
 
+func NewResolverInfo(resolvableTypes []ids.TypeIdentifier, resolvableDomains []ids.Domain,
+	keyExtractor resolvers.KeyExtractor, values map[interface{}]interface{}) resolvers.ResolverInfo {
+	return resolvers.NewResolverInfo(PublicType,
+		resolvableTypes, resolvableDomains, keyExtractor, values)
+}
+
 type factory struct {
 	resolverInfo resolvers.ResolverInfo
 }
@@ -56,33 +64,19 @@ func NewResolverFactory(resolverInfo resolvers.ResolverInfo) (resolvers.Resolver
 	return &factory{resolverInfo}, nil
 }
 
-func (this *factory) New(resolutionContext context.Context) (chan resolvers.Resolver, chan error) {
-	var err error
+func (this *factory) New(resolutionContext context.Context) (resolvers.Resolver, error) {
 
 	locationValue := this.resolverInfo.Value("location")
 
 	if locationValue == nil {
-		err = fmt.Errorf("ResolverInfo 'location' value can't be nil")
+		return nil, fmt.Errorf("ResolverInfo 'location' value can't be nil")
 	}
 
 	location := locationValue.(string)
 
-	resolver, err := New(
+	return New(
 		location,
 		this.resolverInfo)
-
-	cres, cerr := make(chan resolvers.Resolver, 1), make(chan error, 1)
-
-	if err != nil {
-		cerr <- err
-	} else {
-		cres <- resolver
-	}
-
-	close(cres)
-	close(cerr)
-
-	return cres, cerr
 }
 
 func (this *factory) ResolverType() ids.TypeIdentifier {
@@ -148,8 +142,15 @@ func newResolver(file string, resolverInfo resolvers.ResolverInfo) (*fileResolve
 	return &fileResolver{path: filePath, resolverInfo: resolverInfo}, nil
 }
 
-func (this *fileResolver) Resolve(resolutionContext context.Context, selector resolvers.Selector) (chan interface{}, chan error) {
+func (this *fileResolver) ResolverInfo() resolvers.ResolverInfo {
+	return this.resolverInfo
+}
 
+func (this *fileResolver) Get(resolutionContext context.Context, selector resolvers.Selector) (entity interface{}, err error) {
+	return util.Await(this.Resolve(resolutionContext, selector))
+}
+
+func (this *fileResolver) Resolve(resolutionContext context.Context, selector resolvers.Selector) (chan interface{}, chan error) {
 	cres, cerr := make(chan interface{}), make(chan error)
 
 	if this.resolverInfo != nil {
@@ -206,7 +207,7 @@ func (this *fileResolver) Resolve(resolutionContext context.Context, selector re
 	return cres, cerr
 }
 
-func (this *fileResolver) getMap(context context.Context, targetType ids.TypeIdentifier) (map[string]interface{}, error) {
+func (this *fileResolver) getMap(context context.Context, targetType ids.TypeIdentifier) (map[interface{}]interface{}, error) {
 	if this.entityMap != nil {
 		return this.entityMap, nil
 	}
@@ -220,9 +221,9 @@ func (this *fileResolver) getMap(context context.Context, targetType ids.TypeIde
 	return entityMap, err
 }
 
-var untypedLocalDomain []byte = domain.MustDecodeId(encoderType.BASE62, "3", "")
+var untypedLocalDomain []byte = domain.MustDecodeId(encodertype.BASE62, "3", "")
 
-func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeIdentifier) (map[string]interface{}, error) {
+func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeIdentifier) (map[interface{}]interface{}, error) {
 	data, err := ioutil.ReadFile(this.path)
 
 	if err != nil {
@@ -240,7 +241,8 @@ func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeId
 
 	//fmt.Printf("Content Type=%+v, Target Type %+v\n", contentType, targetType)
 
-	entityMap := make(map[string]interface{})
+	keyExtractor := this.resolverInfo.KeyExtractor()
+	entityMap := make(map[interface{}]interface{})
 
 	for id, jsonEntity := range jsonEntityMap {
 		if contentType != targetType {
@@ -252,31 +254,22 @@ func (this *fileResolver) loadMap(context context.Context, targetType ids.TypeId
 				return nil, err
 			}
 
-			cTransRes, cTransErr := translators.Translate(context, contentType,
-				entityId, jsonEntity, targetType)
-
-			if cTransRes == nil || cTransErr == nil {
-				return nil, fmt.Errorf("fileResolver.loadMap Failed: translators.Translate channels are undefined")
-			}
-
-			hasTranslation := false
-			for !hasTranslation {
-				select {
-				case entity, ok := <-cTransRes:
-					if ok {
-						entityMap[string(entityId.Id())] = entity
-						hasTranslation = true
-					}
-				case err, ok := <-cTransErr:
-					if ok {
-						return nil, err
-					}
+			if entity, err := util.Await(
+				translators.Translate(context, contentType,
+					entityId, jsonEntity, targetType)); err == nil {
+				if key, ok := keyExtractor(entity); ok {
+					//fmt.Printf("key(ext)=%v\n", key)
+					entityMap[key] = entity
+				} else {
+					return nil, fmt.Errorf("Can't extract key from: %v", entity)
 				}
+			} else {
+				return nil, err
 			}
-
 		} else {
-			jsonEntity.(map[string]interface{})["id"] = id
-			entityMap[id] = jsonEntity
+			if key, ok := keyExtractor(jsonEntity); ok {
+				entityMap[key] = jsonEntity
+			}
 		}
 	}
 

@@ -1,4 +1,4 @@
-package encoderType
+package encodertype
 
 import (
 	"errors"

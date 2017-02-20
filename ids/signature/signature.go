@@ -5,9 +5,6 @@ import (
 	"github.com/distributed-vision/go-resources/ids/identifier"
 )
 
-func Init() {
-}
-
 type signature struct {
 	ids.Identifier
 	elements ids.SignatureElements

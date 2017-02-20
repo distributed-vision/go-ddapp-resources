@@ -4,14 +4,14 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/version"
-	"github.com/distributed-vision/go-resources/version/versionType"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
 type Domain interface {
 	String() string
-	Encode(encoder encoderType.EncoderType) string
+	Encode(encoder encodertype.EncoderType) string
 	ToJSON() string
 	IsFor(typeId TypeIdentifier) bool
 	Matches(other Domain) bool
@@ -19,10 +19,11 @@ type Domain interface {
 	ScopeId() []byte
 	Scope() DomainScope
 	IdRoot() []byte
+	IsRoot() bool
+	IsRootOf(domain Domain) bool
 	Incarnation() *uint32
-	NewIncarnation(incarnation uint32, crcLength uint, info map[interface{}]interface{}) (Domain, error)
 	CrcLength() uint
-	VersionType() versionType.VersionType
+	VersionType() versiontype.VersionType
 	Name() string
 	Description() string
 	TypeId() TypeIdentifier

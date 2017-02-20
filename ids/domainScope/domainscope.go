@@ -1,27 +1,63 @@
-package domainScope
+package domainscope
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/distributed-vision/go-resources/encoding"
 	"github.com/distributed-vision/go-resources/encoding/base62"
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainScopeFormat"
-	"github.com/distributed-vision/go-resources/ids/domainScopeVisibility"
+	"github.com/distributed-vision/go-resources/ids/domainscopeformat"
+	"github.com/distributed-vision/go-resources/ids/domainscopevisibility"
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/version"
-	"github.com/distributed-vision/go-resources/version/versionType"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
-var DomainPathKey = string(domain.MustDecodeId(encoderType.BASE62, "2", "1")) + "-DOMAINPATH"
+var DomainPathKey = string(domain.MustDecodeId(encodertype.BASE62, "2", "1")) + "-DOMAINPATH"
 
 type scope struct {
 	ids.Domain
 	visibility ids.DomainScopeVisibility
 	format     ids.DomainScopeFormat
+}
+
+func KeyExtractor(entity ...interface{}) (interface{}, bool) {
+	if len(entity) > 0 {
+		if domain, ok := entity[0].(ids.DomainScope); ok {
+			return base62.Encode(domain.Id()), true
+		}
+	}
+	return nil, false
+}
+
+func Await(cres chan ids.DomainScope, cerr chan error) (result ids.DomainScope, err error) {
+	if cres == nil || cerr == nil {
+		return nil, fmt.Errorf("Await Failed: channels are undefined")
+	}
+
+	resolved := false
+	for !resolved {
+		select {
+		case res, ok := <-cres:
+			if ok {
+				result = res
+				resolved = true
+			}
+		case error, ok := <-cerr:
+			if ok {
+				err = error
+				resolved = true
+			}
+		}
+	}
+
+	return result, err
 }
 
 func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}) (interface{}, error) {
@@ -35,13 +71,13 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		return nil, fmt.Errorf("Empty id is invalid")
 	}
 
-	visibility, err := domainScopeVisibility.Parse(json["visibility"].(string))
+	visibility, err := domainscopevisibility.Parse(json["visibility"].(string))
 
 	if err != nil {
 		return nil, err
 	}
 
-	format, err := domainScopeFormat.Parse(json["format"].(string))
+	format, err := domainscopeformat.Parse(json["format"].(string))
 
 	if err != nil {
 		return nil, err
@@ -67,7 +103,7 @@ func NewDomainScope(id []byte, name string, description string, visibility ids.D
 	info["name"] = name
 	info["description"] = description
 
-	base, err := domain.NewDomain(nil, id, nil, 0, versionType.UNVERSIONED, info)
+	base, err := domain.New(nil, id, nil, 0, versiontype.UNVERSIONED, info)
 
 	if err != nil {
 		return nil, err
@@ -77,6 +113,70 @@ func NewDomainScope(id []byte, name string, description string, visibility ids.D
 		Domain:     base,
 		visibility: visibility,
 		format:     format}, nil
+}
+
+var empty = []byte{}
+var extensionBit byte = (1 << 6)
+
+func ToId(base byte, extension []byte) ([]byte, error) {
+
+	if base > 61 {
+		return nil, errors.New("base too Long: scope id base must be < 61")
+	}
+
+	if extension == nil {
+		extension = empty
+	}
+
+	var extensionLen = len(extension)
+
+	if extensionLen > 255 {
+		return nil, errors.New("Id too Long: scope id extension binary length must be < 255")
+	}
+
+	var baseSlice []byte
+
+	if extensionLen == 0 {
+		baseSlice = []byte{base}
+	} else {
+		baseSlice = []byte{base | extensionBit, byte(extensionLen & 0xff)}
+	}
+
+	return bytes.Join([][]byte{baseSlice, extension}, empty), nil
+}
+
+func DecodeId(encoderType encodertype.EncoderType, base string, extension string) ([]byte, error) {
+	var baseValue []byte
+	var extensionValue []byte
+	var err error
+
+	baseValue, err = encoding.Decode(base, encoderType)
+
+	if err != nil {
+		return nil, fmt.Errorf("Invalid base encoding %s", err)
+	}
+
+	if len(baseValue) != 1 {
+		return nil, fmt.Errorf("Invalid base length: %v", len(baseValue))
+	}
+
+	extensionValue, err = encoding.Decode(extension, encoderType)
+
+	if err != nil {
+		return nil, fmt.Errorf("extension rootId encoding %s", err)
+	}
+
+	return ToId(baseValue[0], extensionValue)
+}
+
+func MustDecodeId(encoderType encodertype.EncoderType, base string, extension string) []byte {
+	id, err := DecodeId(encoderType, base, extension)
+
+	if err != nil {
+		panic(fmt.Sprintf("Failed to encode id: %s", err))
+	}
+
+	return id
 }
 
 func (this *scope) Visibility() ids.DomainScopeVisibility {
@@ -97,7 +197,7 @@ func (this *scope) RegisterResolvers() error {
 			factory, err := resolvers.NewResolverFactory(resolverInfo)
 
 			if err == nil {
-				resolvers.RegisterFactory(factory)
+				domain.RegisterResolverFactory(factory)
 			} else {
 				//fmt.Printf("factory err=%s\n", err)
 				errs = append(errs, err)
@@ -122,7 +222,7 @@ func toString(json map[string]interface{}, field string) string {
 	return value.(string)
 }
 
-var fileResolverDomainId = domain.MustDecodeId(encoderType.BASE62, "T", "0", uint32(0), uint(0), versionType.SEMANTIC)
+var fileResolverDomainId = domain.MustDecodeId(encodertype.BASE62, "T", "0", uint32(0), uint(0), versiontype.SEMANTIC)
 
 func toDomainInfo(infoContext context.Context, scopeId []byte, infoIn map[string]interface{}) map[interface{}]interface{} {
 
@@ -186,7 +286,8 @@ func toDomainInfo(infoContext context.Context, scopeId []byte, infoIn map[string
 
 						infoMap["scopeId"] = scopeId
 						resolverInfosOut[index] = resolvers.NewResolverInfo(resolverType,
-							[]ids.TypeIdentifier{domainEntityType}, infoMap)
+							[]ids.TypeIdentifier{domainEntityType}, []ids.Domain{},
+							domain.KeyExtractor, infoMap)
 					}
 				}
 

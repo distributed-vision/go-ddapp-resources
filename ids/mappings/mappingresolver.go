@@ -39,6 +39,10 @@ func (this *Selector) Key() interface{} {
 	return this
 }
 
+func Get(resolutionContext context.Context, selector Selector) (ids.Identifier, error) {
+	return nil, nil
+}
+
 func Resolve(resolutionContext context.Context, selector Selector) (chan ids.Identifier, chan error) {
 	return nil, nil
 }

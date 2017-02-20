@@ -1,4 +1,4 @@
-package signature
+package signaturedomain
 
 import (
 	"context"
@@ -7,15 +7,18 @@ import (
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainScope"
-	"github.com/distributed-vision/go-resources/ids/domainType"
-	"github.com/distributed-vision/go-resources/ids/identifier"
+	"github.com/distributed-vision/go-resources/ids/domainscope"
+	"github.com/distributed-vision/go-resources/ids/domaintype"
+	"github.com/distributed-vision/go-resources/ids/identitydomain"
 	"github.com/distributed-vision/go-resources/resolvers"
-	"github.com/distributed-vision/go-resources/version/versionType"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
+func Init() {
+}
+
 func init() {
-	domain.RegisterJSONUnmarshaller(domainType.SIGNATURE, unmarshalJSON)
+	domain.RegisterJSONUnmarshaller(domaintype.SIGNATURE, unmarshalJSON)
 }
 
 type signatureDomain struct {
@@ -32,7 +35,7 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 
 	var incarnation *uint32
 	var crcLength uint
-	var versionType = versionType.UNVERSIONED
+	var versionType = versiontype.UNVERSIONED
 
 	info := make(map[interface{}]interface{})
 
@@ -44,7 +47,7 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 
 	if hasResolverInfo && resolverInfo.Value("scopeId") != nil {
 		//fmt.Printf("scopeid=%v\n", resolverInfo.Value("scopeId"))
-		scope, err = domainScope.Get(unmarshalContext, domainScope.Selector{Id: resolverInfo.Value("scopeId").([]byte)})
+		scope, err = domainscope.Get(unmarshalContext, domainscope.Selector{Id: resolverInfo.Value("scopeId").([]byte)})
 		//fmt.Printf("scope=%v\n", scope)
 		if err != nil {
 			return nil, err
@@ -55,7 +58,7 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		return nil, fmt.Errorf("Can't unmarshal domain for unknow scope")
 	}
 
-	base, err := identifier.NewIdentityDomain(scope, rootId, incarnation, crcLength, versionType, info)
+	base, err := identitydomain.New(scope, rootId, incarnation, crcLength, versionType, info)
 	//fmt.Printf("base=%v\n", base)
 
 	if err != nil {

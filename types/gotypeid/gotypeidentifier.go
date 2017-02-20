@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
 	"github.com/distributed-vision/go-resources/ids/identifier"
@@ -53,7 +53,7 @@ func (this *GoTypeIdentifier) IsAssignableFrom(typeId ids.TypeIdentifier) bool {
 	return false
 }
 
-var goTypeDomain []byte = domain.MustDecodeId(encoderType.BASE62, "2", "0")
+var goTypeDomain []byte = domain.MustDecodeId(encodertype.BASE62, "2", "0")
 
 func newIdFor(gotype reflect.Type) (ids.TypeIdentifier, error) {
 

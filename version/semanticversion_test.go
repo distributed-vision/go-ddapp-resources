@@ -292,7 +292,7 @@ func TestBuildMetaDataVersions(t *testing.T) {
 }
 
 func TestNewHelper(t *testing.T) {
-	v, err := New("1.2.3")
+	v, err := Parse("1.2.3")
 	if err != nil {
 		t.Fatalf("Unexpected error %q", err)
 	}
@@ -307,7 +307,7 @@ func TestNewHelper(t *testing.T) {
 }
 
 func TestMakeHelper(t *testing.T) {
-	v, err := Make("1.2.3")
+	v, err := Parse("1.2.3")
 	if err != nil {
 		t.Fatalf("Unexpected error %q", err)
 	}

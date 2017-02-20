@@ -5,16 +5,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"time"
 
 	"github.com/distributed-vision/go-resources/encoding"
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainScope"
+	"github.com/distributed-vision/go-resources/ids/domainscope"
 	"github.com/distributed-vision/go-resources/ids/mappings"
+	"github.com/distributed-vision/go-resources/util/hton"
+	"github.com/distributed-vision/go-resources/util/ntoh"
 	"github.com/distributed-vision/go-resources/version"
-	"github.com/distributed-vision/go-resources/version/versionType"
+	"github.com/distributed-vision/go-resources/version/versiontype"
+	"github.com/howeyc/crc16"
+	"github.com/sigurn/crc8"
 )
 
 func Init() {
@@ -24,11 +29,11 @@ type identifier struct {
 	value []byte
 }
 
-func New(domainValue interface{}, id []byte, idVersion version.Version) (ids.Identifier, error) {
+func New(domainValue interface{}, id []byte, versionValue ...version.Version) (ids.Identifier, error) {
 
 	var crcLength uint
 	var domainId []byte
-	var idVersionType versionType.VersionType
+	var versionType versiontype.VersionType
 	var err error
 
 	if domainValue == nil {
@@ -39,11 +44,11 @@ func New(domainValue interface{}, id []byte, idVersion version.Version) (ids.Ide
 			dom := domainValue.(ids.Domain)
 			crcLength = dom.CrcLength()
 			domainId = dom.Id()
-			idVersionType = dom.VersionType()
+			versionType = dom.VersionType()
 		case []byte:
 			domainId = domainValue.([]byte)
 			crcLength, err = identifierCrcLength(domainId)
-			idVersionType, err = identifierVersionType(domainId)
+			versionType, err = identifierVersionType(domainId)
 
 			if err != nil {
 				return nil, err
@@ -62,19 +67,24 @@ func New(domainValue interface{}, id []byte, idVersion version.Version) (ids.Ide
 	}
 
 	var value []byte
+	var idVersion version.Version
 
-	switch idVersionType {
-	case versionType.UNVERSIONED:
+	if len(versionValue) > 0 {
+		idVersion = versionValue[0]
+	}
+
+	switch versionType {
+	case versiontype.UNVERSIONED:
 		value = bytes.Join([][]byte{domainId, id}, []byte{})
 		break
-	case versionType.NUMERIC:
+	case versiontype.NUMERIC:
 		if nver, ok := idVersion.(version.NumericVersion); !ok {
 			return nil, errors.New("Expected numeric version")
 		} else {
 			value = bytes.Join([][]byte{domainId, []byte{nver.ByteLength()}, id, nver.Bytes()}, []byte{})
 		}
 		break
-	case versionType.SEMANTIC:
+	case versiontype.SEMANTIC:
 		if sver, ok := idVersion.(*version.SemanticVersion); !ok {
 			return nil, errors.New("Expected semantic version")
 		} else {
@@ -92,7 +102,7 @@ func New(domainValue interface{}, id []byte, idVersion version.Version) (ids.Ide
 	}
 
 	if crcLength > 0 {
-		crc, err := calculateCrc(value, crcLength)
+		crc, err := crcCalc(value, crcLength)
 
 		if err != nil {
 			return nil, err
@@ -129,19 +139,18 @@ func AsLocator(id ids.Identifier) ids.Locator {
 func (this *identifier) Id() []byte {
 	domainOffset := domain.DomainOffset(this.value)
 	domainLength := domain.DomainLength(this.value) + domain.VersionLengthLength(this.value)
-	versionLength := domain.VersionLength(this.value)
+	versionLength := versionLength(this.value)
 	identifierLength, _ := identifierLength(this.value)
 	//fmt.Printf("do=%v, dl=%v, vl=%v, il=%v\n", domainOffset, domainLength, versionLength, identifierLength)
 	return this.value[domainOffset+domainLength : domainOffset+domainLength+identifierLength-versionLength]
 }
 
 func (this *identifier) ScopeId() []byte {
-	id := this.value[:domain.ScopeLength(this.value)]
-	return id
+	return domain.ScopeId(this.value)
 }
 
 func (this *identifier) DomainId() []byte {
-	return this.value[:domain.ScopeLength(this.value)+domain.DomainLength(this.value)+1]
+	return this.value[:domain.DomainOffset(this.value)+domain.DomainLength(this.value)]
 }
 
 func (this *identifier) HasVersion() bool {
@@ -149,7 +158,7 @@ func (this *identifier) HasVersion() bool {
 }
 
 func (this *identifier) VersionId() []byte {
-	versionLength := domain.VersionLength(this.value)
+	versionLength := versionLength(this.value)
 	if versionLength == 0 {
 		return nil
 	}
@@ -170,9 +179,9 @@ func (this *identifier) Version() version.Version {
 
 	if err == nil {
 		switch vtype {
-		case versionType.NUMERIC:
-			return version.NumericVersion(domain.NumericVersionValue(versionId))
-		case versionType.SEMANTIC:
+		case versiontype.NUMERIC:
+			return version.NumericVersion(numericVersionValue(versionId))
+		case versiontype.SEMANTIC:
 			result, err := version.Parse(string(versionId))
 			if err == nil {
 				return result
@@ -193,6 +202,9 @@ func (this *identifier) DomainIncarnation() *uint32 {
 
 func (this *identifier) Checksum() []byte {
 	crcLength, _ := identifierCrcLength(this.value)
+	if crcLength == 0 {
+		return nil
+	}
 	return this.value[uint(len(this.value))-crcLength:]
 }
 
@@ -210,15 +222,13 @@ func (this *identifier) sign(signatureDomain ids.SignatureDomain) (ids.Signature
 }
 
 func (this *identifier) Scope() (scope ids.DomainScope) {
-	selector := domainScope.Selector{Id: this.ScopeId()}
-	scope, _ = domainScope.Get(context.Background(), selector)
-
+	scope, _ = domainscope.Get(context.Background(), domainscope.Selector{Id: this.ScopeId()})
 	return scope
 }
 
 func (this *identifier) Domain() ids.IdentityDomain {
-	scope, _ := domain.Get(context.Background(), domain.Selector{Scope: this.Scope(), Id: this.DomainId()})
-	return scope
+	domain, _ := domain.Get(context.Background(), domain.Selector{Id: this.DomainId()})
+	return domain
 }
 
 func (this *identifier) IsUndefined() bool {
@@ -269,10 +279,10 @@ func (this *identifier) CompareTo(o ids.Identifier) int {
 	return bytes.Compare(this.Id(), o.Id())
 }
 
-func (this *identifier) Encode(seperator string, encoders ...encoderType.EncoderType) string {
-	domainEncoder := encoderType.BASE62
-	idEncoder := encoderType.BASE62
-	versionEncoder := encoderType.BASE62
+func (this *identifier) Encode(seperator string, encoders ...encodertype.EncoderType) string {
+	domainEncoder := encodertype.BASE62
+	idEncoder := encodertype.BASE62
+	versionEncoder := encodertype.BASE62
 
 	if len(encoders) > 0 {
 		domainEncoder = encoders[0]
@@ -313,7 +323,7 @@ func (this *identifier) Encode(seperator string, encoders ...encoderType.Encoder
 }
 
 func (this *identifier) String() string {
-	return this.Encode("", encoderType.BASE62)
+	return this.Encode("", encodertype.BASE62)
 }
 
 func (this *identifier) Value() []byte {
@@ -374,8 +384,35 @@ func (this *identifier) TypeId() ids.TypeIdentifier {
 	return this.Domain().TypeId()
 }
 
-func identifierVersionType(value []byte) (versionType.VersionType, error) {
+func identifierVersionType(value []byte) (versiontype.VersionType, error) {
 	return domain.VersionTypeValue(value)
+}
+
+func versionLength(value []byte) uint {
+	lengthLength := domain.VersionLengthLength(value)
+
+	if lengthLength > 0 {
+		domainOffset := domain.ScopeLength(value) + 1 + domain.FeatureSliceLength(value)
+		domainLength := domain.DomainLength(value)
+		return uint(value[domainOffset+domainLength])
+	}
+
+	return 0
+}
+
+func numericVersionValue(versionValue []byte) uint32 {
+	vlen := len(versionValue)
+	if vlen > 0 {
+		if vlen == 1 {
+			return uint32(versionValue[0])
+		}
+		if vlen == 2 {
+			return uint32(ntoh.U16(versionValue, 0))
+		}
+		return ntoh.U32(versionValue, 0)
+	}
+
+	return 0
 }
 
 func identifierCrcLength(value []byte) (uint, error) {
@@ -403,10 +440,6 @@ func identifierLength(value []byte) (uint, error) {
 	return length, nil
 }
 
-func calculateCrc(value []byte, crcLength uint) ([]byte, error) {
-	return domain.CrcCalc(value, crcLength)
-}
-
 func isValid(value []byte) bool {
 	scopeLength := domain.ScopeLength(value)
 	domainLength := domain.DomainLength(value)
@@ -417,7 +450,7 @@ func isValid(value []byte) bool {
 		return false
 	}
 
-	crcCalc, err := domain.CrcCalc(value[:uint(len(value))-crcLength], crcLength*8)
+	crc, err := crcCalc(value[:uint(len(value))-crcLength], crcLength*8)
 
 	if err != nil {
 		return false
@@ -428,7 +461,29 @@ func isValid(value []byte) bool {
 		scopeLength <= uint(len(value))-domainLength-crcLength &&
 		domainLength > incarnationLength &&
 		domainLength <= uint(len(value))-domainLength-crcLength &&
-		bytes.Equal(value[uint(len(value))-crcLength:], crcCalc)
+		bytes.Equal(value[uint(len(value))-crcLength:], crc)
+}
+
+var crc8Table *crc8.Table = crc8.MakeTable(crc8.CRC8_MAXIM)
+var crc16Table *crc16.Table = crc16.MakeTable(crc16.IBM)
+var crc32Table *crc32.Table = crc32.MakeTable(crc32.IEEE)
+
+func crcCalc(value []byte, crcLength uint) ([]byte, error) {
+	switch crcLength {
+	case 0:
+		return make([]byte, 0), nil
+	case 8:
+		buf := [1]byte{crc8.Checksum(value, crc8Table)}
+		return buf[:], nil
+	case 16:
+		buf := make([]byte, 2)
+		return hton.U16(buf, 0, crc16.Checksum(value, crc16Table)), nil
+	case 32:
+		buf := make([]byte, 4)
+		return hton.U32(buf, 0, crc32.Checksum(value, crc32Table)), nil
+	default:
+		return nil, errors.New("Invalid crc length")
+	}
 }
 
 // TODO - this should be an LRU cache

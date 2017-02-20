@@ -1,4 +1,4 @@
-package domainType
+package domaintype
 
 import (
 	"errors"

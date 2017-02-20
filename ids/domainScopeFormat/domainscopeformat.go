@@ -1,4 +1,4 @@
-package domainScopeFormat
+package domainscopeformat
 
 import (
 	"errors"

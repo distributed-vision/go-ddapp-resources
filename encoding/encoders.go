@@ -9,27 +9,27 @@ import (
 	"github.com/distributed-vision/go-resources/encoding/base58"
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/encoding/base64url"
-	"github.com/distributed-vision/go-resources/encoding/encoderType"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
 )
 
-var encoders = map[encoderType.EncoderType]func(src []byte) string{
-	encoderType.BASE62:    base62.Encode,
-	encoderType.BASE36:    base36.Encode,
-	encoderType.BASE58:    base58.Encode,
-	encoderType.BASE10:    base10.Encode,
-	encoderType.BASE64URL: base64url.Encode,
-	encoderType.HEX:       hex.EncodeToString}
+var encoders = map[encodertype.EncoderType]func(src []byte) string{
+	encodertype.BASE62:    base62.Encode,
+	encodertype.BASE36:    base36.Encode,
+	encodertype.BASE58:    base58.Encode,
+	encodertype.BASE10:    base10.Encode,
+	encodertype.BASE64URL: base64url.Encode,
+	encodertype.HEX:       hex.EncodeToString}
 
-func Encode(toEncode []byte, encoding encoderType.EncoderType) (string, error) {
-	encoder := encoders[encoding]
+func Encode(toEncode []byte, encoderType encodertype.EncoderType) (string, error) {
+	encoder := encoders[encoderType]
 
 	if encoder != nil {
 		return encoder(toEncode), nil
 	}
 
-	if encoding == encoderType.UTF8 {
+	if encoderType == encodertype.UTF8 {
 		return string(toEncode), nil
 	}
 
-	return "", errors.New("Unsupported encoding: " + encoding.String())
+	return "", errors.New("Unsupported encoding: " + encoderType.String())
 }

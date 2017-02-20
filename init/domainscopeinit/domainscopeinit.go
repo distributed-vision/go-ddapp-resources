@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	"github.com/distributed-vision/go-resources/ids"
+	"github.com/distributed-vision/go-resources/ids/domainscope"
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/resolvers/fileresolver"
 	"github.com/distributed-vision/go-resources/types/gotypeid"
@@ -22,7 +23,10 @@ func Init() {
 	entityType := gotypeid.IdOf(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
 
 	resolverFactory, err := fileresolver.NewResolverFactory(
-		resolvers.NewResolverInfo(fileresolver.PublicType, []ids.TypeIdentifier{entityType},
+		resolvers.NewResolverInfo(fileresolver.PublicType,
+			[]ids.TypeIdentifier{entityType},
+			[]ids.Domain{},
+			domainscope.KeyExtractor,
 			map[interface{}]interface{}{
 				"location": "scopeinfo.json",
 				"paths":    filepath.SplitList(scopePath)}))

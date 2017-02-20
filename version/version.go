@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/distributed-vision/go-resources/version/versionType"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
 const (
@@ -18,12 +18,43 @@ const (
 type Version interface {
 	Equals(o Version) bool
 	Compare(o Version) int
-	Type() versionType.VersionType
+	Type() versiontype.VersionType
 	String() string
 	Validate() error
 }
 
-type VersionType versionType.VersionType
+func New(major uint64, minor ...uint64) Version {
+
+	if len(minor) == 0 {
+		return NumericVersion(major)
+	}
+
+	var patch uint64
+
+	if len(minor) > 1 {
+		patch = minor[1]
+	}
+
+	return &SemanticVersion{major, minor[0], patch, nil, nil}
+}
+
+func NewPreRelease(major, minor, patch uint64, preReleaseInfo, buildInfo []string) Version {
+
+	preReleaseValues := []PreReleaseValue{}
+
+	if preReleaseInfo != nil {
+		for _, prvalstr := range preReleaseInfo {
+			prval, err := NewPreReleaseValue(prvalstr)
+			if err != nil {
+				preReleaseValues = append(preReleaseValues, prval)
+			}
+		}
+	}
+
+	return &SemanticVersion{major, minor, patch, preReleaseValues, buildInfo}
+}
+
+type VersionType versiontype.VersionType
 
 type NumericVersion uint64
 
@@ -90,8 +121,8 @@ func (v NumericVersion) ByteLength() byte {
 	return 8
 }
 
-func (v NumericVersion) Type() versionType.VersionType {
-	return versionType.NUMERIC
+func (v NumericVersion) Type() versiontype.VersionType {
+	return versiontype.NUMERIC
 }
 
 func (v NumericVersion) IsSemantic() bool {
@@ -146,8 +177,8 @@ func (v *SemanticVersion) Bytes() []byte {
 	return []byte(v.String())
 }
 
-func (v *SemanticVersion) Type() versionType.VersionType {
-	return versionType.SEMANTIC
+func (v *SemanticVersion) Type() versiontype.VersionType {
+	return versiontype.SEMANTIC
 }
 
 // Equals checks if v is equal to o.
@@ -241,18 +272,6 @@ func (v *SemanticVersion) Validate() error {
 	}
 
 	return nil
-}
-
-// New is an alias for Parse and returns a pointer, parses version string and returns a validated Version or error
-func New(s string) (vp Version, err error) {
-	v, err := Parse(s)
-	vp = v
-	return
-}
-
-// Make is an alias for Parse, parses version string and returns a validated Version or error
-func Make(s string) (Version, error) {
-	return Parse(s)
 }
 
 // ParseTolerant allows for certain version specifications that do not strictly adhere to semver

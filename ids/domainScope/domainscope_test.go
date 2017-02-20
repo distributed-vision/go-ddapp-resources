@@ -1,4 +1,4 @@
-package domainScope_test
+package domainscope_test
 
 import (
 	"bytes"
@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
-	"github.com/distributed-vision/go-resources/ids/domainScope"
-	"github.com/distributed-vision/go-resources/ids/domainScopeFormat"
-	"github.com/distributed-vision/go-resources/ids/domainScopeVisibility"
+	"github.com/distributed-vision/go-resources/encoding/encodertype"
+	"github.com/distributed-vision/go-resources/ids/domain"
+	"github.com/distributed-vision/go-resources/ids/domainscope"
+	"github.com/distributed-vision/go-resources/ids/domainscopeformat"
+	"github.com/distributed-vision/go-resources/ids/domainscopevisibility"
 	"github.com/distributed-vision/go-resources/init/domainscopeinit"
 )
 
@@ -27,7 +29,7 @@ func ignore(value interface{}) {
 func GetUninitialisedResolver() {
 
 	scopeId, _ := base62.Decode("0")
-	cres, cerr := domainScope.Resolve(context.Background(), domainScope.Selector{Id: scopeId})
+	cres, cerr := domainscope.Resolve(context.Background(), domainscope.Selector{Id: scopeId})
 
 	if cres == nil || cerr == nil {
 		panic("GetUninitialisedResolver Failed: domainScopeResolver.Resolve channels are undefined")
@@ -45,12 +47,12 @@ func GetUninitialisedResolver() {
 
 func TestGetUntypedScope(t *testing.T) {
 	scopeId, _ := base62.Decode("0")
-	scopeNameSelector := domainScope.Selector{Name: "untyped",
-		Opts: domainScope.SelectorOpts{
+	scopeNameSelector := domainscope.Selector{Name: "untyped",
+		Opts: domainscope.SelectorOpts{
 			IgnoreCase:       true,
 			IgnoreWhitespace: true}}
 
-	scope, err := domainScope.Get(context.Background(), domainScope.Selector{Id: scopeId})
+	scope, err := domainscope.Get(context.Background(), domainscope.Selector{Id: scopeId})
 
 	if err != nil {
 		t.Errorf("ResolveUntypedScope Failed With Error: %s", err)
@@ -66,18 +68,18 @@ func TestGetUntypedScope(t *testing.T) {
 				t.Errorf("ResolveUntypedScope Failed: Name: expected: '%s' got '%s'", "Untyped", scope.Name())
 			}
 
-			if scope.Visibility() != domainScopeVisibility.PUBLIC {
-				t.Errorf("ResolveUntypedScope Failed: Visibility: expected: '%v' got '%v'", domainScopeVisibility.PUBLIC, scope.Visibility())
+			if scope.Visibility() != domainscopevisibility.PUBLIC {
+				t.Errorf("ResolveUntypedScope Failed: Visibility: expected: '%v' got '%v'", domainscopevisibility.PUBLIC, scope.Visibility())
 
 			}
 
-			if scope.Format() != domainScopeFormat.FIXED {
-				t.Errorf("ResolveUntypedScope Failed: Format: expected: '%v' got '%v'", domainScopeFormat.FIXED, scope.Format())
+			if scope.Format() != domainscopeformat.FIXED {
+				t.Errorf("ResolveUntypedScope Failed: Format: expected: '%v' got '%v'", domainscopeformat.FIXED, scope.Format())
 			}
 		}
 	}
 
-	scope, err = domainScope.Get(context.Background(), scopeNameSelector)
+	scope, err = domainscope.Get(context.Background(), scopeNameSelector)
 
 	if err != nil {
 		t.Errorf("ResolveUntypedScope Failed With Error: %s", err)
@@ -93,14 +95,43 @@ func TestGetUntypedScope(t *testing.T) {
 				t.Errorf("ResolveUntypedScope Failed: Name: expected: '%s' got '%s'", "Untyped", scope.Name())
 			}
 
-			if scope.Visibility() != domainScopeVisibility.PUBLIC {
-				t.Errorf("ResolveUntypedScope Failed: Visibility: expected: '%v got '%v'", domainScopeVisibility.PUBLIC, scope.Visibility())
+			if scope.Visibility() != domainscopevisibility.PUBLIC {
+				t.Errorf("ResolveUntypedScope Failed: Visibility: expected: '%v got '%v'", domainscopevisibility.PUBLIC, scope.Visibility())
 
 			}
 
-			if scope.Format() != domainScopeFormat.FIXED {
-				t.Errorf("ResolveUntypedScope Failed: Format: expected: '%v' got '%v'", domainScopeFormat.FIXED, scope.Format())
+			if scope.Format() != domainscopeformat.FIXED {
+				t.Errorf("ResolveUntypedScope Failed: Format: expected: '%v' got '%v'", domainscopeformat.FIXED, scope.Format())
 			}
 		}
 	}
+}
+
+func TestScopeIdFormatting(t *testing.T) {
+	scopeId, err := domainscope.DecodeId(encodertype.BASE62, "0", "123")
+
+	if err != nil {
+		t.Errorf("TestScopeIdFormatting Failed With Error: %s", err)
+	}
+
+	if base62.Encode(scopeId) != "1AfsQd" {
+		t.Errorf("TestScopeIdFormatting unexpected scopeId: expected %s, got: %s", "1AfsQd", base62.Encode(scopeId))
+	}
+
+	if scopeId[0] != (1 << 6) {
+		t.Errorf("TestScopeIdFormatting base encoding failed: expected %v, got: %v", (1 << 6), scopeId[0])
+	}
+
+	if scopeId[1] != 2 {
+		t.Errorf("TestScopeIdFormatting encoding length incorrect: expected %v, got: %v", 2, scopeId[1])
+	}
+
+	if domain.ScopeLength(scopeId) != 4 {
+		t.Errorf("TestScopeIdFormatting scope length incorrect: expected %v, got: %v", 4, domain.ScopeLength(scopeId))
+	}
+
+	if !bytes.Equal(scopeId[2:2+scopeId[1]], base62.MustDecode("123")) {
+		t.Errorf("TestScopeIdFormatting extension encoding failed: expected %v, got: %v", base62.MustDecode("123"), scopeId[2:2+scopeId[1]])
+	}
+
 }
