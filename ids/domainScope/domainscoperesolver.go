@@ -14,10 +14,49 @@ import (
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/translators"
 	"github.com/distributed-vision/go-resources/util"
+	"github.com/distributed-vision/go-resources/version"
+	"github.com/distributed-vision/go-resources/version/versiontype"
 )
+
+var scopeResolverInfo resolvers.ResolverInfo
+var scopeResolver *resolver
 
 var scopeEntityType ids.TypeIdentifier
 var domainEntityType ids.TypeIdentifier
+
+var PublicResolverType ids.TypeIdentifier
+
+func init() {
+	ids.OnLocalTypeInit(func() {
+		var err error
+
+		if scopeEntityType == nil {
+			scopeEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
+		}
+
+		if domainEntityType == nil {
+			domainEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.Domain)(nil)).Elem())
+		}
+
+		mapType := ids.NewLocalTypeId(reflect.TypeOf(map[string]interface{}{}))
+		translators.Register(context.Background(), mapType, scopeEntityType, domainScopeTranslator)
+
+		PublicResolverType, err = ids.NewTypeId(
+			domain.MustDecodeId(encodertype.BASE62, "T", "0", uint32(0), uint(0), versiontype.SEMANTIC),
+			[]byte("DomainScopeResolver"), version.New(0, 0, 1))
+
+		scopeResolverInfo = resolvers.NewResolverInfo(PublicResolverType,
+			[]ids.TypeIdentifier{scopeEntityType}, nil, KeyExtractor, nil)
+		baseResolver, err := resolvers.NewCompositeResolver(scopeResolverInfo)
+		scopeResolver = &resolver{baseResolver}
+
+		if err != nil {
+			panic(fmt.Sprint("DomainScope resolver creation failed with:", err))
+		}
+
+		resolvers.RegisterResolver(scopeResolver)
+	})
+}
 
 var untypedDomain []byte = domain.MustDecodeId(encodertype.BASE62, "3", "")
 
@@ -42,21 +81,6 @@ func domainScopeTranslator(translationContext context.Context, fromId ids.Identi
 	close(cerr)
 
 	return cres, cerr
-}
-
-func init() {
-	ids.OnLocalTypeInit(func() {
-		if scopeEntityType == nil {
-			scopeEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
-		}
-
-		if domainEntityType == nil {
-			domainEntityType = ids.NewLocalTypeId(reflect.TypeOf((*ids.Domain)(nil)).Elem())
-		}
-
-		mapType := ids.NewLocalTypeId(reflect.TypeOf(map[string]interface{}{}))
-		translators.Register(context.Background(), mapType, scopeEntityType, domainScopeTranslator)
-	})
 }
 
 type SelectorOpts struct {
@@ -104,8 +128,55 @@ func (this *Selector) Type() ids.TypeIdentifier {
 	return scopeEntityType
 }
 
+type resolver struct {
+	*resolvers.CompositeResolver
+}
+
+func (this *resolver) Get(resolutionContext context.Context, selector resolvers.Selector) (interface{}, error) {
+	return util.Await(this.Resolve(resolutionContext, selector))
+}
+
+func (this *resolver) Resolve(resolutionContext context.Context, selector resolvers.Selector) (chan interface{}, chan error) {
+	cResOut := make(chan interface{}, 1)
+	cErrOut := make(chan error, 1)
+
+	go func() {
+		res, err := util.Await(this.CompositeResolver.Resolve(resolutionContext, selector))
+
+		if err == nil {
+			if scope, ok := res.(ids.DomainScope); ok {
+				scope.RegisterResolvers()
+				cResOut <- scope
+			} else {
+				cErrOut <- fmt.Errorf("Resolver returned invalid type, expected: ids.Domain got: %s", reflect.TypeOf(res))
+			}
+		} else {
+			cErrOut <- err
+		}
+
+		close(cResOut)
+		close(cErrOut)
+	}()
+
+	return cResOut, cErrOut
+}
+
+func RegisterResolverFactory(resolverFactory resolvers.ResolverFactory) error {
+	return scopeResolver.RegisterComponentFactory(resolverFactory, false)
+}
+
 func Get(resolutionContext context.Context, selector Selector) (ids.DomainScope, error) {
-	return Await(Resolve(resolutionContext, selector))
+	res, err := scopeResolver.Get(resolutionContext, &selector)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if scope, ok := res.(ids.DomainScope); ok {
+		return scope, err
+	}
+
+	return nil, fmt.Errorf("Resolver returned invalid type, expected: ids.Domain got: %s", reflect.TypeOf(res))
 }
 
 func Resolve(resolutionContext context.Context, selector Selector) (chan ids.DomainScope, chan error) {
@@ -114,11 +185,10 @@ func Resolve(resolutionContext context.Context, selector Selector) (chan ids.Dom
 	cErrOut := make(chan error, 1)
 
 	go func() {
-		res, err := util.Await(resolvers.Resolve(resolutionContext, &selector))
+		res, err := util.Await(scopeResolver.Resolve(resolutionContext, &selector))
 
 		if err == nil {
 			if scope, ok := res.(ids.DomainScope); ok {
-				scope.RegisterResolvers()
 				cResOut <- scope
 			} else {
 				cErrOut <- fmt.Errorf("Resolver returned invalid type, expected: ids.Domain got: %s", reflect.TypeOf(res))

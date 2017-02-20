@@ -35,5 +35,5 @@ func Init() {
 		panic(fmt.Sprintf("Unexpected error creating resolver factory: %s", err))
 	}
 
-	resolvers.RegisterFactory(resolverFactory)
+	domainscope.RegisterResolverFactory(resolverFactory)
 }

@@ -132,8 +132,16 @@ func (this *CompositeResolver) Resolve(resolutionContext context.Context, select
 		if selector.Type() == nil {
 			for _, entries := range this.componentMap {
 				for _, entry := range entries {
-					if entry.resolver.ResolverInfo().Matches(selector) {
-						resolverEntries = append(resolverEntries, entry)
+					if entry.resolver != nil {
+						//fmt.Println("resolverinfo=", entry.resolver.ResolverInfo())
+						if entry.resolver.ResolverInfo().Matches(selector) {
+							resolverEntries = append(resolverEntries, entry)
+						}
+					} else {
+						//fmt.Println("resolverinfo=", entry.factory.ResolverInfo())
+						if entry.factory.ResolverInfo().Matches(selector) {
+							resolverEntries = append(resolverEntries, entry)
+						}
 					}
 				}
 			}
@@ -141,17 +149,19 @@ func (this *CompositeResolver) Resolve(resolutionContext context.Context, select
 			if entries, ok := this.componentMap[string(selector.Type().Value())]; ok {
 				for _, entry := range entries {
 					if entry.resolver != nil {
+						//fmt.Println("resolverinfo=", entry.resolver.ResolverInfo())
 						if entry.resolver.ResolverInfo().Matches(selector) {
 							resolverEntries = append(resolverEntries, entry)
 						}
 					} else {
+						//fmt.Println("resolverinfo=", entry.factory.ResolverInfo())
 						if entry.factory.ResolverInfo().Matches(selector) {
 							resolverEntries = append(resolverEntries, entry)
 						}
 					}
 				}
 			} else {
-				err = fmt.Errorf("Resolve Failed: no resolver for entity type=%v", selector.Type())
+				err = fmt.Errorf("Resolve Failed: no resolver entries for type=%v", selector.Type())
 			}
 		}
 		this.componentMapMutex.Unlock()
