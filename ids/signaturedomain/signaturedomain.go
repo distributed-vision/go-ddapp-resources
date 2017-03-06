@@ -7,9 +7,9 @@ import (
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainscope"
 	"github.com/distributed-vision/go-resources/ids/domaintype"
 	"github.com/distributed-vision/go-resources/ids/identitydomain"
+	"github.com/distributed-vision/go-resources/ids/scheme"
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/version/versiontype"
 )
@@ -43,22 +43,22 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		info[key] = value
 	}
 
-	var scope ids.DomainScope
+	var idScheme ids.Scheme
 
-	if hasResolverInfo && resolverInfo.Value("scopeId") != nil {
-		//fmt.Printf("scopeid=%v\n", resolverInfo.Value("scopeId"))
-		scope, err = domainscope.Get(unmarshalContext, domainscope.Selector{Id: resolverInfo.Value("scopeId").([]byte)})
-		//fmt.Printf("scope=%v\n", scope)
+	if hasResolverInfo && resolverInfo.Value("schemeId") != nil {
+		//fmt.Printf("schemeid=%v\n", resolverInfo.Value("schemeId"))
+		idScheme, err = scheme.Get(unmarshalContext, scheme.Selector{Id: resolverInfo.Value("schemeId").([]byte)})
+		//fmt.Printf("scheme=%v\n", scheme)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	if scope == nil {
-		return nil, fmt.Errorf("Can't unmarshal domain for unknow scope")
+	if idScheme == nil {
+		return nil, fmt.Errorf("Can't unmarshal domain for unknow scheme")
 	}
 
-	base, err := identitydomain.New(scope, rootId, incarnation, crcLength, versionType, info)
+	base, err := identitydomain.New(idScheme, rootId, incarnation, crcLength, versionType, false, false, info)
 	//fmt.Printf("base=%v\n", base)
 
 	if err != nil {

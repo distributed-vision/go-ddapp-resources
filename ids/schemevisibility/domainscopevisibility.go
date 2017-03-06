@@ -1,4 +1,4 @@
-package domainscopevisibility
+package schemevisibility
 
 import (
 	"errors"
@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	UNTYPED ids.DomainScopeVisibility = iota
+	UNTYPED ids.SchemeVisibility = iota
 	LOCAL
 	PRIVATE
 	PUBLIC
 )
 
-func Parse(visibility string) (ids.DomainScopeVisibility, error) {
+func Parse(visibility string) (ids.SchemeVisibility, error) {
 	switch strings.ToUpper(visibility) {
 	case "UNTYPED":
 		return UNTYPED, nil

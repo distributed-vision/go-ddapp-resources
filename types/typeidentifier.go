@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/identifier"
@@ -10,6 +11,7 @@ import (
 )
 
 var typeIds = make(map[string]ids.TypeIdentifier)
+var typeIdsMutex = &sync.Mutex{}
 
 func MustNewId(domain interface{}, id []byte, idVersion version.Version) ids.TypeIdentifier {
 	typeid, err := NewId(domain, id, idVersion)
@@ -29,14 +31,16 @@ func NewId(domain interface{}, id []byte, idVersion version.Version) (ids.TypeId
 		return nil, err
 	}
 
-	typeTd := &typeIdentifier{base}
+	typeId := &typeIdentifier{base}
 
-	if registeredId, ok := typeIds[string(typeTd.Value())]; ok {
+	typeIdsMutex.Lock()
+	defer typeIdsMutex.Unlock()
+	if registeredId, ok := typeIds[string(typeId.Value())]; ok {
 		return registeredId, nil
 	}
 
-	RegisterId(typeTd)
-	return typeTd, nil
+	typeIds[string(typeId.Value())] = typeId
+	return typeId, nil
 }
 
 type typeIdentifier struct {
@@ -52,5 +56,7 @@ func (this *typeIdentifier) IsAssignableFrom(typeId ids.TypeIdentifier) bool {
 }
 
 func RegisterId(typeid ids.TypeIdentifier) {
+	typeIdsMutex.Lock()
 	typeIds[string(typeid.Value())] = typeid
+	typeIdsMutex.Unlock()
 }

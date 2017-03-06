@@ -29,6 +29,7 @@ type MutableResolver interface {
 
 type ResolverInfo interface {
 	ResolverType() ids.TypeIdentifier
+	IsMutable() bool
 	ResolvableTypes() []ids.TypeIdentifier
 	ResolvableDomains() []ids.Domain
 	KeyExtractor() KeyExtractor
@@ -109,6 +110,10 @@ func (this *resolverInfo) ResolverType() ids.TypeIdentifier {
 
 func (this *resolverInfo) ResolvableTypes() []ids.TypeIdentifier {
 	return this.resolvableTypes
+}
+
+func (this *resolverInfo) IsMutable() bool {
+	return false
 }
 
 func (this *resolverInfo) ResolvableDomains() []ids.Domain {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/distributed-vision/go-resources/encoding/base62"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainscope"
 	"github.com/distributed-vision/go-resources/ids/identitydomain"
+	"github.com/distributed-vision/go-resources/ids/scheme"
 	"github.com/distributed-vision/go-resources/init/idsinit"
 )
 
@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 }
 
 type hashDomainTest struct {
-	scopeId  string
+	schemeId string
 	idRoot   string
 	name     string
 	domainId string
@@ -38,10 +38,10 @@ func TestDomainGet(t *testing.T) {
 
 	for _, test := range hashDomainTests {
 
-		scopeId, err := base62.Decode(test.scopeId)
+		schemeId, err := base62.Decode(test.schemeId)
 
 		if err != nil {
-			t.Errorf("TestDomainGet Failed: Can't decode scopeId")
+			t.Errorf("TestDomainGet Failed: Can't decode schemeId")
 		}
 
 		domainId, err := base62.Decode(test.idRoot)
@@ -50,7 +50,7 @@ func TestDomainGet(t *testing.T) {
 			t.Errorf("TestDomainGet Failed: Can't decode domainId")
 		}
 
-		scopeNameSelector := domainscope.Selector{Name: "global hash", Opts: domainscope.SelectorOpts{
+		schemeNameSelector := scheme.Selector{Name: "global hash", Opts: scheme.SelectorOpts{
 			IgnoreCase:       true,
 			IgnoreWhitespace: true}}
 
@@ -58,16 +58,16 @@ func TestDomainGet(t *testing.T) {
 			IgnoreCase:       true,
 			IgnoreWhitespace: true}}
 
-		scope, err := domainscope.Get(context.Background(), domainscope.Selector{Id: scopeId})
+		idScheme, err := scheme.Get(context.Background(), scheme.Selector{Id: schemeId})
 
 		if err != nil {
-			t.Errorf("TestDomainGet Failed to resolve Scope: %s", err)
+			t.Errorf("TestDomainGet Failed to resolve Scheme: %s", err)
 		} else {
-			if base62.Encode(scope.Id()) != test.scopeId {
-				t.Errorf("TestDomainGet Failed: scope.Id: expected: '%s' got '%s'", test.scopeId, base62.Encode(scope.Id()))
+			if base62.Encode(idScheme.Id()) != test.schemeId {
+				t.Errorf("TestDomainGet Failed: scheme.Id: expected: '%s' got '%s'", test.schemeId, base62.Encode(idScheme.Id()))
 			}
 
-			domain, derr := domain.Get(context.Background(), domain.Selector{ScopeId: scopeId, IdRoot: domainId})
+			domain, derr := domain.Get(context.Background(), domain.Selector{SchemeId: schemeId, IdRoot: domainId})
 
 			if derr != nil {
 				t.Errorf("TestDomainGet Failed to resolve Domain: %s", derr)
@@ -85,19 +85,19 @@ func TestDomainGet(t *testing.T) {
 
 				}
 
-				if base62.Encode(domain.Scope().Id()) != test.scopeId {
-					t.Errorf("TestDomainGet Failed: domain.Scope.Id: expected: '%s' got '%s'", test.scopeId, base62.Encode(domain.Scope().Id()))
+				if base62.Encode(domain.Scheme().Id()) != test.schemeId {
+					t.Errorf("TestDomainGet Failed: domain.Scheme.Id: expected: '%s' got '%s'", test.schemeId, base62.Encode(domain.Scheme().Id()))
 				}
 			}
 		}
 
-		scope, err = domainscope.Get(context.Background(), scopeNameSelector)
+		idScheme, err = scheme.Get(context.Background(), schemeNameSelector)
 
 		if err != nil {
-			t.Errorf("TestDomainGet Failed to resolve Scope: %s", err)
+			t.Errorf("TestDomainGet Failed to resolve Scheme: %s", err)
 		} else {
-			if base62.Encode(scope.Id()) != test.scopeId {
-				t.Errorf("TestDomainGet Failed: scope.Id: expected: '%s' got '%s'", test.scopeId, base62.Encode(scope.Id()))
+			if base62.Encode(idScheme.Id()) != test.schemeId {
+				t.Errorf("TestDomainGet Failed: scheme.Id: expected: '%s' got '%s'", test.schemeId, base62.Encode(idScheme.Id()))
 			}
 
 			domain, derr := domain.Get(context.Background(), domainNameSelector)
@@ -119,8 +119,8 @@ func TestDomainGet(t *testing.T) {
 
 				}
 
-				if base62.Encode(domain.Scope().Id()) != test.scopeId {
-					t.Errorf("TestDomainGet Failed: domain.Scope.Id: expected: '%s' got '%s'", test.scopeId, base62.Encode(domain.Scope().Id()))
+				if base62.Encode(domain.Scheme().Id()) != test.schemeId {
+					t.Errorf("TestDomainGet Failed: domain.Scheme.Id: expected: '%s' got '%s'", test.schemeId, base62.Encode(domain.Scheme().Id()))
 				}
 			}
 		}
@@ -129,10 +129,10 @@ func TestDomainGet(t *testing.T) {
 
 func TestDomainWithIncarnations(t *testing.T) {
 
-	scopeId, err := base62.Decode("1")
+	schemeId, err := base62.Decode("1")
 
 	if err != nil {
-		t.Errorf("TestDomainWithIncarnations Failed: Can't decode scopeId")
+		t.Errorf("TestDomainWithIncarnations Failed: Can't decode schemeId")
 	}
 
 	domainId, err := base62.Decode("3")
@@ -141,16 +141,16 @@ func TestDomainWithIncarnations(t *testing.T) {
 		t.Errorf("TestDomainWithIncarnations Failed: Can't decode domainId")
 	}
 
-	scope, err := domainscope.Get(context.Background(), domainscope.Selector{Id: scopeId})
+	scheme, err := scheme.Get(context.Background(), scheme.Selector{Id: schemeId})
 
 	if err != nil {
-		t.Errorf("TestDomainWithIncarnations Failed to resolve Scope: %s", err)
+		t.Errorf("TestDomainWithIncarnations Failed to resolve Scheme: %s", err)
 	} else {
-		if !bytes.Equal(scope.Id(), scopeId) {
-			t.Errorf("TestDomainWithIncarnations Failed: scope.Id: expected: '%s' got '%s'", scopeId, base62.Encode(scope.Id()))
+		if !bytes.Equal(scheme.Id(), schemeId) {
+			t.Errorf("TestDomainWithIncarnations Failed: scheme.Id: expected: '%s' got '%s'", schemeId, base62.Encode(scheme.Id()))
 		}
 
-		domain, derr := domain.Get(context.Background(), domain.Selector{ScopeId: scopeId, IdRoot: domainId})
+		domain, derr := domain.Get(context.Background(), domain.Selector{SchemeId: schemeId, IdRoot: domainId})
 
 		if derr != nil {
 			t.Errorf("TestDomainWithIncarnations Failed to resolve Domain: %s", derr)
@@ -301,10 +301,10 @@ func TestDomainWithIncarnations(t *testing.T) {
 }
 
 func TestDomainWithCrc(t *testing.T) {
-	scopeId, err := base62.Decode("1")
+	schemeId, err := base62.Decode("1")
 
 	if err != nil {
-		t.Errorf("TestDomainWithCrc Failed: Can't decode scopeId: %s", err)
+		t.Errorf("TestDomainWithCrc Failed: Can't decode schemeId: %s", err)
 	}
 
 	domainId, err := base62.Decode("2")
@@ -313,16 +313,16 @@ func TestDomainWithCrc(t *testing.T) {
 		t.Errorf("TestDomainWithCrc Failed: Can't decode domainId: %s", err)
 	}
 
-	scope, err := domainscope.Get(context.Background(), domainscope.Selector{Id: scopeId})
+	scheme, err := scheme.Get(context.Background(), scheme.Selector{Id: schemeId})
 
 	if err != nil {
-		t.Errorf("TestDomainWithCrc Failed to resolve Scope: %s", err)
+		t.Errorf("TestDomainWithCrc Failed to resolve Scheme: %s", err)
 	} else {
-		if !bytes.Equal(scope.Id(), scopeId) {
-			t.Errorf("TestDomainWithCrc Failed: scope.Id: expected: '%s' got '%s'", scopeId, base62.Encode(scope.Id()))
+		if !bytes.Equal(scheme.Id(), schemeId) {
+			t.Errorf("TestDomainWithCrc Failed: scheme.Id: expected: '%s' got '%s'", schemeId, base62.Encode(scheme.Id()))
 		}
 
-		domain, derr := domain.Get(context.Background(), domain.Selector{ScopeId: scopeId, IdRoot: domainId})
+		domain, derr := domain.Get(context.Background(), domain.Selector{SchemeId: schemeId, IdRoot: domainId})
 
 		if derr != nil {
 			t.Errorf("TestDomainWithCrc Failed to resolve Domain: %s", derr)

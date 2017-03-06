@@ -25,3 +25,13 @@ func Await(cres chan interface{}, cerr chan error) (result interface{}, err erro
 
 	return result, err
 }
+
+func AwaitError(cerr chan error) (err error) {
+	if cerr == nil {
+		return fmt.Errorf("Await Failed: channel is undefined")
+	}
+
+	err, _ = <-cerr
+
+	return err
+}

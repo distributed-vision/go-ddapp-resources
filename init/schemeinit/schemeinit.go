@@ -1,4 +1,4 @@
-package domainscopeinit
+package schemeinit
 
 import (
 	"fmt"
@@ -7,33 +7,33 @@ import (
 	"reflect"
 
 	"github.com/distributed-vision/go-resources/ids"
-	"github.com/distributed-vision/go-resources/ids/domainscope"
+	"github.com/distributed-vision/go-resources/ids/scheme"
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/resolvers/fileresolver"
 	"github.com/distributed-vision/go-resources/types/gotypeid"
 )
 
 func Init() {
-	scopePath := os.Getenv("DV_DOMAIN_SCOPE_PATH")
+	schemePath := os.Getenv("DV_DOMAIN_SCOPE_PATH")
 
-	if scopePath == "" {
-		scopePath = "../../../domain-scope"
+	if schemePath == "" {
+		schemePath = "../../../id-schemes"
 	}
 
-	entityType := gotypeid.IdOf(reflect.TypeOf((*ids.DomainScope)(nil)).Elem())
+	entityType := gotypeid.IdOf(reflect.TypeOf((*ids.Scheme)(nil)).Elem())
 
 	resolverFactory, err := fileresolver.NewResolverFactory(
 		resolvers.NewResolverInfo(fileresolver.PublicType,
 			[]ids.TypeIdentifier{entityType},
 			[]ids.Domain{},
-			domainscope.KeyExtractor,
+			scheme.KeyExtractor,
 			map[interface{}]interface{}{
-				"location": "scopeinfo.json",
-				"paths":    filepath.SplitList(scopePath)}))
+				"location": "schemeinfo.json",
+				"paths":    filepath.SplitList(schemePath)}))
 
 	if err != nil {
 		panic(fmt.Sprintf("Unexpected error creating resolver factory: %s", err))
 	}
 
-	domainscope.RegisterResolverFactory(resolverFactory)
+	scheme.RegisterResolverFactory(resolverFactory)
 }

@@ -20,21 +20,23 @@ import (
 var DomainPathKey = "DV_DOMAIN_PATH"
 
 type domain struct {
-	id          []byte
-	scope       ids.DomainScope
-	root        ids.Domain
-	idRoot      []byte
-	incarnation *uint32
-	crcLength   uint
-	versionType versiontype.VersionType
-	typeId      ids.TypeIdentifier
-	info        map[interface{}]interface{}
+	id           []byte
+	scheme       ids.Scheme
+	root         ids.Domain
+	idRoot       []byte
+	incarnation  *uint32
+	crcLength    uint
+	versionType  versiontype.VersionType
+	hasPaths     bool
+	hasFragments bool
+	typeId       ids.TypeIdentifier
+	info         map[interface{}]interface{}
 }
 
 func KeyExtractor(entity ...interface{}) (interface{}, bool) {
 	if len(entity) > 0 {
 		if domain, ok := entity[0].(ids.Domain); ok {
-			id, err := ToId(domain.ScopeId(), domain.IdRoot(), nil, 0, versiontype.UNVERSIONED)
+			id, err := ToId(domain.SchemeId(), domain.IdRoot(), nil, 0, versiontype.UNVERSIONED, false, false)
 
 			if err == nil {
 				return base62.Encode(id), true
@@ -70,10 +72,10 @@ func Await(cres chan ids.Domain, cerr chan error) (result ids.Domain, err error)
 
 var empty = []byte{}
 
-func New(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType, infos ...map[interface{}]interface{}) (ids.Domain, error) {
+func New(schemeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType, hasPaths bool, hasFragments bool, infos ...map[interface{}]interface{}) (ids.Domain, error) {
 
-	id, err := ToId(scopeId, idRoot, incarnation, crcLength, versionType)
-	//fmt.Printf("id=%v\n", id)
+	id, err := ToId(schemeId, idRoot, incarnation, crcLength, versionType, hasPaths, hasFragments)
+	//fmt.Printf("id=%v, hasPaths=%v, hasFragments=%v\n", id, hasPaths, hasFragments)
 	if err != nil {
 		return nil, err
 	}
@@ -90,31 +92,37 @@ func New(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, ver
 	}
 
 	return &domain{
-		id:          id,
-		scope:       nil,
-		idRoot:      idRoot,
-		incarnation: incarnation,
-		crcLength:   crcLength,
-		versionType: versionType,
-		info:        info}, nil
+		id:           id,
+		scheme:       nil,
+		idRoot:       idRoot,
+		incarnation:  incarnation,
+		crcLength:    crcLength,
+		hasPaths:     hasPaths,
+		hasFragments: hasFragments,
+		versionType:  versionType,
+		info:         info}, nil
 }
 
 func Wrap(id []byte) ids.Domain {
 	crcLength, _ := CrcLengthValue(id)
 	versionType, _ := VersionTypeValue(id)
+	hasPaths := HasPaths(id)
+	hasFragments := HasFragments(id)
 
 	return &domain{
-		id:          id,
-		scope:       nil,
-		idRoot:      IdRootValue(id),
-		incarnation: IncarnationValue(id),
-		crcLength:   crcLength,
-		versionType: versionType}
+		id:           id,
+		scheme:       nil,
+		idRoot:       IdRoot(id),
+		incarnation:  IncarnationValue(id),
+		crcLength:    crcLength,
+		hasPaths:     hasPaths,
+		hasFragments: hasFragments,
+		versionType:  versionType}
 }
 
 func WithIncarnation(root ids.Domain, incarnation uint32, crcLength uint, infos ...map[interface{}]interface{}) (ids.Domain, error) {
 
-	id, err := ToId(root.ScopeId(), root.IdRoot(), &incarnation, crcLength, root.VersionType())
+	id, err := ToId(root.SchemeId(), root.IdRoot(), &incarnation, crcLength, root.VersionType(), root.HasPaths(), root.HasFragments())
 
 	if err != nil {
 		return nil, err
@@ -133,7 +141,7 @@ func WithIncarnation(root ids.Domain, incarnation uint32, crcLength uint, infos 
 
 	return &domain{
 		id:          id,
-		scope:       nil,
+		scheme:      nil,
 		root:        root,
 		idRoot:      root.IdRoot(),
 		incarnation: &incarnation,
@@ -144,7 +152,7 @@ func WithIncarnation(root ids.Domain, incarnation uint32, crcLength uint, infos 
 
 func WithCrc(root ids.Domain, crcLength uint, infos ...map[interface{}]interface{}) (ids.IdentityDomain, error) {
 
-	id, err := ToId(root.ScopeId(), root.IdRoot(), nil, crcLength, root.VersionType())
+	id, err := ToId(root.SchemeId(), root.IdRoot(), nil, crcLength, root.VersionType(), root.HasPaths(), root.HasFragments())
 
 	if err != nil {
 		return nil, err
@@ -169,7 +177,7 @@ func WithCrc(root ids.Domain, crcLength uint, infos ...map[interface{}]interface
 
 	return &domain{
 		id:          id,
-		scope:       nil,
+		scheme:      nil,
 		root:        root,
 		idRoot:      root.IdRoot(),
 		incarnation: &incarnation,
@@ -180,21 +188,25 @@ func WithCrc(root ids.Domain, crcLength uint, infos ...map[interface{}]interface
 
 var featureBit byte = (1 << 6)
 
-func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType) ([]byte, error) {
+func ToId(schemeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, versionType versiontype.VersionType, hasPaths bool, hasFragments bool) ([]byte, error) {
 
 	var incarnationSlice = IncarnationAsBytes(incarnation)
 
-	unscoped := bytes.Join([][]byte{idRoot, incarnationSlice}, empty)
-	//fmt.Printf("unscoped=%v\n", unscoped)
-	if len(unscoped) > 61 {
-		return nil, errors.New("Id too Long: domain id unscoped binary length (idRoot+incarnation) must be < 61")
+	unschemed := bytes.Join([][]byte{idRoot, incarnationSlice}, empty)
+	//fmt.Printf("unschemed=%v\n", unschemed)
+	if len(unschemed) > 61 {
+		return nil, errors.New("Id too Long: domain id unschemed binary length (idRoot+incarnation) must be < 61")
 	}
 
-	var unscopedlenSlice []byte
+	var unschemedlenSlice []byte
 	featureSlice := empty
 
-	if scopeId == nil || len(scopeId) == 0 {
-		unscopedlenSlice = empty
+	if len(schemeId) == 0 {
+		if len(unschemed) == 0 {
+			return nil, errors.New("Id too Short: domain schemeId + id unschemed binary length (idRoot+incarnation) must be > 0")
+		}
+
+		unschemedlenSlice = empty
 	} else {
 		incarnationLengthBits, err := IncarnationLengthBits(incarnationSlice)
 
@@ -208,38 +220,44 @@ func ToId(scopeId []byte, idRoot []byte, incarnation *uint32, crcLength uint, ve
 			return nil, err
 		}
 
+		pathLengthBits := pathLengthBits(hasPaths, hasFragments)
+
 		versionTypeBits, err := VersionTypeBits(versionType)
 
 		if err != nil {
 			return nil, err
 		}
 
-		if crcLengthBits > 0 || incarnationLengthBits > 0 || versionTypeBits > 0 {
-			featureSlice = []byte{crcLengthBits | incarnationLengthBits | versionTypeBits}
+		if crcLengthBits > 0 || incarnationLengthBits > 0 ||
+			versionTypeBits > 0 || pathLengthBits > 0 {
+			featureSlice = []byte{crcLengthBits |
+				incarnationLengthBits | versionTypeBits | pathLengthBits}
 		}
 
 		if len(featureSlice) > 0 {
-			unscopedlenSlice = []byte{byte(len(unscoped)&0xff) | featureBit}
+			unschemedlenSlice = []byte{byte(len(unschemed)&0xff) | featureBit}
 		} else {
-			unscopedlenSlice = []byte{byte(len(unscoped) & 0xff)}
+			unschemedlenSlice = []byte{byte(len(unschemed) & 0xff)}
 		}
 	}
 
-	return bytes.Join([][]byte{scopeId, unscopedlenSlice, featureSlice, unscoped}, empty), nil
+	return bytes.Join([][]byte{schemeId, unschemedlenSlice, featureSlice, unschemed}, empty), nil
 }
 
-func DecodeId(encoderType encodertype.EncoderType, scopeId string, rootId string, features ...interface{}) ([]byte, error) {
-	var scopeIdValue []byte
+func DecodeId(encoderType encodertype.EncoderType, schemeId string, rootId string, features ...interface{}) ([]byte, error) {
+	var schemeIdValue []byte
 	var idRootValue []byte
 	var incarnationValue *uint32 = nil
 	var crcLengthValue uint = 0
 	var versionTypeValue versiontype.VersionType = versiontype.UNVERSIONED
+	var hasPaths = false
+	var hasFragments = false
 	var err error
 
-	scopeIdValue, err = encoding.Decode(scopeId, encoderType)
+	schemeIdValue, err = encoding.Decode(schemeId, encoderType)
 
 	if err != nil {
-		return nil, fmt.Errorf("Invalid scopeId encoding %s", err)
+		return nil, fmt.Errorf("Invalid schemeId encoding %s", err)
 	}
 
 	idRootValue, err = encoding.Decode(rootId, encoderType)
@@ -275,11 +293,27 @@ func DecodeId(encoderType encodertype.EncoderType, scopeId string, rootId string
 		}
 	}
 
-	return ToId(scopeIdValue, idRootValue, incarnationValue, crcLengthValue, versionTypeValue)
+	if len(features) > 3 {
+		if feature, ok := features[3].(bool); ok {
+			hasPaths = feature
+		} else {
+			return nil, fmt.Errorf("Invalid hasPaths type expected: bool, got: %s", reflect.ValueOf(features[1]).Type())
+		}
+	}
+
+	if len(features) > 4 {
+		if feature, ok := features[4].(bool); ok {
+			hasFragments = feature
+		} else {
+			return nil, fmt.Errorf("Invalid hasFragments type expected: bool, got: %s", reflect.ValueOf(features[1]).Type())
+		}
+	}
+
+	return ToId(schemeIdValue, idRootValue, incarnationValue, crcLengthValue, versionTypeValue, hasPaths, hasFragments)
 }
 
-func MustDecodeId(encoderType encodertype.EncoderType, scopeId string, rootId string, features ...interface{}) []byte {
-	id, err := DecodeId(encoderType, scopeId, rootId, features...)
+func MustDecodeId(encoderType encodertype.EncoderType, schemeId string, rootId string, features ...interface{}) []byte {
+	id, err := DecodeId(encoderType, schemeId, rootId, features...)
 
 	if err != nil {
 		panic(fmt.Sprintf("Failed to encode id: %s", err))
@@ -332,7 +366,8 @@ func (this *domain) SetIfChanged(idRoot []byte, incarnation *uint32) bool {
 	}
 
 	if changed {
-		this.id, _ = ToId(this.scope.Id(), this.idRoot, this.incarnation, this.crcLength, this.versionType)
+		this.id, _ = ToId(this.scheme.Id(), this.idRoot, this.incarnation,
+			this.crcLength, this.versionType, this.hasPaths, this.hasFragments)
 	}
 
 	return changed
@@ -358,10 +393,10 @@ func (this *domain) IsFor(typeId ids.TypeIdentifier) bool {
 
 func (this *domain) Matches(domain ids.Domain) bool {
 	idRoot := domain.IdRoot()
-	scopeId := domain.ScopeId()
+	schemeId := domain.SchemeId()
 
 	if this.idRoot == nil {
-		return bytes.Equal(this.scope.Id(), scopeId)
+		return bytes.Equal(this.scheme.Id(), schemeId)
 	}
 	return bytes.Equal(this.idRoot, idRoot)
 }
@@ -370,22 +405,26 @@ func (this *domain) Id() []byte {
 	return this.id
 }
 
-func (this *domain) ScopeId() []byte {
-	return ScopeId(this.id)
+func (this *domain) SchemeId() []byte {
+	return SchemeId(this.id)
 }
 
-func (this *domain) Scope() ids.DomainScope {
-	if this.scope == nil {
+func (this *domain) Scheme() ids.Scheme {
+	if this.scheme == nil {
+		if SchemeLength(this.id) == 0 {
+			return nil
+		}
+
 		if this.root != nil {
-			return this.root.Scope()
+			return this.root.Scheme()
 		} else {
-			res, err := resolvers.Get(context.Background(), &scopeSelector{this.ScopeId()})
+			res, err := resolvers.Get(context.Background(), &schemeSelector{this.SchemeId()})
 			if err == nil {
-				this.scope = res.(ids.DomainScope)
+				this.scheme = res.(ids.Scheme)
 			}
 		}
 	}
-	return this.scope
+	return this.scheme
 }
 
 func (this *domain) IdRoot() []byte {
@@ -398,6 +437,14 @@ func (this *domain) Incarnation() *uint32 {
 
 func (this *domain) CrcLength() uint {
 	return this.crcLength
+}
+
+func (this *domain) HasPaths() bool {
+	return this.hasPaths
+}
+
+func (this *domain) HasFragments() bool {
+	return this.hasFragments
 }
 
 func (this *domain) IsRootOf(domain ids.Domain) bool {
@@ -582,17 +629,79 @@ func VersionLengthLength(value []byte) uint {
 	return 0
 }
 
+func pathLengthBits(allowPaths bool, allowFragments bool) byte {
+	var lengthBits byte = 0
+
+	if allowPaths {
+		lengthBits = lengthBits + 2
+	}
+
+	if allowFragments {
+		lengthBits = lengthBits + 1
+	}
+
+	return lengthBits << 6
+}
+
+func HasPaths(value []byte) bool {
+	featureSlice := featureSlice(value)
+	return featureSlice != nil && (featureSlice[0]>>6)&0x02 > 0
+}
+
+func PathLengthLength(value []byte) uint {
+	featureSlice := featureSlice(value)
+	if len(featureSlice) > 0 && (featureSlice[0]>>6)&0x02 > 0 {
+		return 1
+	}
+	return 0
+}
+
+func HasFragments(value []byte) bool {
+	featureSlice := featureSlice(value)
+	return featureSlice != nil && (featureSlice[0]>>6)&0x01 > 0
+}
+
+func FragmentLengthLength(value []byte) uint {
+	featureSlice := featureSlice(value)
+
+	if len(featureSlice) > 0 && (featureSlice[0]>>6)&0x01 > 0 {
+		return 1
+	}
+
+	return 0
+}
+
 var extensionBit byte = (1 << 6)
 
-func ScopeLength(value []byte) uint {
+func RawSchemeLength(value []byte) uint {
 	if (value[0] & extensionBit) != 0 {
 		return uint(value[1] + 2)
 	}
+
 	return 1
 }
 
-func ScopeId(value []byte) []byte {
-	return value[:ScopeLength(value)]
+func SchemeLength(value []byte) uint {
+	valueLen := uint(len(value))
+
+	if valueLen == 0 {
+		return 0
+	}
+
+	schemeLen := RawSchemeLength(value)
+
+	// if this value only contains a schema and no domain
+	// then it is a scheme id - which is represented as a domain
+	// with no scheme in the current code
+	if schemeLen == valueLen {
+		return 0
+	}
+
+	return schemeLen
+}
+
+func SchemeId(value []byte) []byte {
+	return value[:SchemeLength(value)]
 }
 
 func IncarnationAsBytes(incarnation *uint32) []byte {
@@ -616,7 +725,7 @@ func IncarnationAsBytes(incarnation *uint32) []byte {
 func IncarnationValue(value []byte) *uint32 {
 	incLen := IncarnationLength(value)
 	if incLen > 0 {
-		incOffset := ScopeLength(value) +
+		incOffset := SchemeLength(value) +
 			DomainLength(value) + FeatureSliceLength(value) - incLen + 1
 		if incLen == 1 {
 			res := uint32(value[incOffset])
@@ -644,28 +753,28 @@ func IncarnationLength(value []byte) uint {
 }
 
 func DomainLength(value []byte) uint {
-	return uint(value[ScopeLength(value)] & 0x3f)
+	return uint(value[SchemeLength(value)] & 0x3f)
 }
 
 func DomainOffset(value []byte) uint {
-	return ScopeLength(value) + 1 + FeatureSliceLength(value)
+	return SchemeLength(value) + 1 + FeatureSliceLength(value)
 }
 
-func IdRootValue(value []byte) []byte {
+func IdRoot(value []byte) []byte {
 	domainOffset := DomainOffset(value)
 	return value[domainOffset : domainOffset+DomainLength(value)-IncarnationLength(value)]
 }
 
 func featureSlice(value []byte) []byte {
-	if value[ScopeLength(value)]>>6 > 0 {
-		featurePos := ScopeLength(value) + 1
+	if value[SchemeLength(value)]>>6 > 0 {
+		featurePos := SchemeLength(value) + 1
 		return value[featurePos : featurePos+1]
 	}
 	return nil
 }
 
 func FeatureSliceLength(value []byte) uint {
-	if value[ScopeLength(value)]>>6 > 0 {
+	if value[SchemeLength(value)]>>6 > 0 {
 		return 1
 	}
 	return 0

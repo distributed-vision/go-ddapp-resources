@@ -3,6 +3,7 @@ package ids
 import (
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/version"
@@ -16,13 +17,15 @@ type Domain interface {
 	IsFor(typeId TypeIdentifier) bool
 	Matches(other Domain) bool
 	Id() []byte
-	ScopeId() []byte
-	Scope() DomainScope
+	SchemeId() []byte
+	Scheme() Scheme
 	IdRoot() []byte
 	IsRoot() bool
 	IsRootOf(domain Domain) bool
 	Incarnation() *uint32
 	CrcLength() uint
+	HasPaths() bool
+	HasFragments() bool
 	VersionType() versiontype.VersionType
 	Name() string
 	Description() string
@@ -32,15 +35,15 @@ type Domain interface {
 	Equals(other Domain) bool
 }
 
-type DomainScopeVisibility int
+type SchemeVisibility int
 
-type DomainScopeFormat int
+type SchemeFormat int
 type DomainType int
 
-type DomainScope interface {
+type Scheme interface {
 	Domain
-	Visibility() DomainScopeVisibility
-	Format() DomainScopeFormat
+	Visibility() SchemeVisibility
+	Format() SchemeFormat
 	RegisterResolvers() error
 }
 
@@ -58,20 +61,25 @@ type SequenceDomain interface {
 }
 
 type Identifier interface {
+	String() string
 	Id() []byte
-	ScopeId() []byte
+	IdRoot() []byte
+	Path() []byte
+	Fragment() []byte
+	SchemeId() []byte
 	DomainId() []byte
 	VersionId() []byte
 	DomainIdRoot() []byte
 	DomainIncarnation() *uint32
 	Checksum() []byte
-	Scope() DomainScope
+	Scheme() Scheme
 	Domain() IdentityDomain
 	Version() version.Version
 	HasVersion() bool
 	IsUndefined() bool
 	IsNull() bool
 	IsValid() bool
+	Validate() error
 	Value() []byte
 
 	Sign(signatureDomain SignatureDomain) (Signature, error)
@@ -79,7 +87,27 @@ type Identifier interface {
 	Matches(other Identifier) bool
 	Equals(other Identifier) bool
 
-	As(domain IdentityDomain) (Identifier, error)
+	As(domain IdentityDomain, at ...time.Time) (chan Identifier, chan error)
+	MapFrom(from Identifier, between ...time.Time) chan error
+	MapTo(from Identifier, between ...time.Time) chan error
+	MapBetween(from Identifier, between ...time.Time) chan error
+
+	Get() (interface{}, error)
+	GetAs(typeId TypeIdentifier) (interface{}, error)
+	Resolve() (chan interface{}, chan error)
+	ResolveAs(typeId TypeIdentifier) (chan interface{}, chan error)
+}
+
+type Locator interface {
+	Identifier
+}
+
+type Mapping interface {
+	FromId() Identifier
+	ToDomain() IdentityDomain
+	From() time.Time
+	To() time.Time
+	ToId() Identifier
 }
 
 var typeInitFunctions = []func(){}
@@ -125,16 +153,6 @@ type Signature interface {
 type TypeIdentifier interface {
 	Signature
 	IsAssignableFrom(typeId TypeIdentifier) bool
-}
-
-type Locator interface {
-	Identifier
-
-	Get() (interface{}, error)
-	GetAs(typeId TypeIdentifier) (interface{}, error)
-
-	Resolve() (chan interface{}, chan error)
-	ResolveAs(typeId TypeIdentifier) (chan interface{}, chan error)
 }
 
 type IdGenerator interface {

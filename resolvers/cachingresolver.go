@@ -57,30 +57,33 @@ func (this *CachingResolver) ResolverInfo() ResolverInfo {
 
 func (this *CachingResolver) Get(resolutionContext context.Context, selector Selector) (interface{}, error) {
 
-	var key string
+	key := selector.Key()
 
-	switch selector.Key().(type) {
-	case string:
-		key = selector.Key().(string)
-	case []byte:
-		key = string(selector.Key().([]byte))
-	default:
-		key = fmt.Sprintf("%v", selector.Key())
-	}
+	if key != nil {
+		var keyVal string
 
-	entity, ok := this.cache.Get(key)
-
-	//fmt.Printf("key=%v, entity: %v\n", key, entity)
-	if ok {
-		if selector.Test(entity) {
-			return entity, nil
+		switch key.(type) {
+		case string:
+			keyVal = key.(string)
+		case []byte:
+			keyVal = string(key.([]byte))
+		default:
+			keyVal = fmt.Sprintf("%v", key)
 		}
-	}
 
-	for _, key := range this.cache.Keys() {
-		if entity, ok = this.cache.Peek(key); ok {
+		entity, ok := this.cache.Get(keyVal)
+
+		if ok {
 			if selector.Test(entity) {
 				return entity, nil
+			}
+		}
+	} else {
+		for _, key := range this.cache.Keys() {
+			if entity, ok := this.cache.Peek(key); ok {
+				if selector.Test(entity) {
+					return entity, nil
+				}
 			}
 		}
 	}

@@ -15,6 +15,14 @@ type componentEntry struct {
 	resolver   Resolver
 }
 
+func (this *componentEntry) ResolverInfo() ResolverInfo {
+	if this.resolver != nil {
+		return this.resolver.ResolverInfo()
+	}
+
+	return this.factory.ResolverInfo()
+}
+
 type CompositeResolver struct {
 	*CachingResolver
 	componentMap      map[string][]*componentEntry
@@ -108,6 +116,48 @@ func (this *CompositeResolver) RegisterComponent(resolver Resolver) error {
 
 	return nil
 }
+func (this *CompositeResolver) GetMutableComponents(getContext context.Context, selector Selector) []Resolver {
+	mutableComponents := []Resolver{}
+
+	if selector != nil {
+		this.componentMapMutex.Lock()
+		if selector.Type() == nil {
+			for _, entries := range this.componentMap {
+				for _, entry := range entries {
+					if entry.ResolverInfo().Matches(selector) &&
+						entry.ResolverInfo().IsMutable() {
+						if entry.resolver == nil {
+							resolver, err := entry.factory.New(getContext)
+							if err != nil {
+								entry.resolver = resolver
+								mutableComponents = append(mutableComponents, entry.resolver)
+							}
+						}
+						mutableComponents = append(mutableComponents, entry.resolver)
+					}
+				}
+			}
+		} else {
+			if entries, ok := this.componentMap[string(selector.Type().Value())]; ok {
+				for _, entry := range entries {
+					if entry.ResolverInfo().Matches(selector) && entry.ResolverInfo().IsMutable() {
+						if entry.resolver == nil {
+							resolver, err := entry.factory.New(getContext)
+							if err != nil {
+								entry.resolver = resolver
+								mutableComponents = append(mutableComponents, entry.resolver)
+							}
+						}
+						mutableComponents = append(mutableComponents, entry.resolver)
+					}
+				}
+			}
+		}
+		this.componentMapMutex.Unlock()
+	}
+
+	return mutableComponents
+}
 
 func (this *CompositeResolver) Get(resolutionContext context.Context, selector Selector) (entity interface{}, err error) {
 	return util.Await(this.Resolve(resolutionContext, selector))
@@ -132,32 +182,17 @@ func (this *CompositeResolver) Resolve(resolutionContext context.Context, select
 		if selector.Type() == nil {
 			for _, entries := range this.componentMap {
 				for _, entry := range entries {
-					if entry.resolver != nil {
-						//fmt.Println("resolverinfo=", entry.resolver.ResolverInfo())
-						if entry.resolver.ResolverInfo().Matches(selector) {
-							resolverEntries = append(resolverEntries, entry)
-						}
-					} else {
-						//fmt.Println("resolverinfo=", entry.factory.ResolverInfo())
-						if entry.factory.ResolverInfo().Matches(selector) {
-							resolverEntries = append(resolverEntries, entry)
-						}
+					//fmt.Println("resolverinfo=", entry.resolver.ResolverInfo())
+					if entry.ResolverInfo().Matches(selector) {
+						resolverEntries = append(resolverEntries, entry)
 					}
 				}
 			}
 		} else {
 			if entries, ok := this.componentMap[string(selector.Type().Value())]; ok {
 				for _, entry := range entries {
-					if entry.resolver != nil {
-						//fmt.Println("resolverinfo=", entry.resolver.ResolverInfo())
-						if entry.resolver.ResolverInfo().Matches(selector) {
-							resolverEntries = append(resolverEntries, entry)
-						}
-					} else {
-						//fmt.Println("resolverinfo=", entry.factory.ResolverInfo())
-						if entry.factory.ResolverInfo().Matches(selector) {
-							resolverEntries = append(resolverEntries, entry)
-						}
+					if entry.ResolverInfo().Matches(selector) {
+						resolverEntries = append(resolverEntries, entry)
 					}
 				}
 			} else {
@@ -217,7 +252,7 @@ func (this *CompositeResolver) Resolve(resolutionContext context.Context, select
 						resultMutex.Lock()
 						if result == nil {
 							result = res
-							if key, ok := componentEntry.resolver.ResolverInfo().KeyExtractor()(result); ok {
+							if key, ok := componentEntry.ResolverInfo().KeyExtractor()(result); ok {
 								this.Cache().Add(key, result)
 							}
 							cancel()

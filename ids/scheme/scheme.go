@@ -1,4 +1,4 @@
-package domainscope
+package scheme
 
 import (
 	"bytes"
@@ -12,31 +12,33 @@ import (
 	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
 	"github.com/distributed-vision/go-resources/ids/domain"
-	"github.com/distributed-vision/go-resources/ids/domainscopeformat"
-	"github.com/distributed-vision/go-resources/ids/domainscopevisibility"
+	"github.com/distributed-vision/go-resources/ids/schemeformat"
+	"github.com/distributed-vision/go-resources/ids/schemevisibility"
 	"github.com/distributed-vision/go-resources/resolvers"
 	"github.com/distributed-vision/go-resources/version"
 	"github.com/distributed-vision/go-resources/version/versiontype"
 )
 
+// DomainPathKey is the unique context path for the file paths to seach for domain
+//  .json files
 var DomainPathKey = string(domain.MustDecodeId(encodertype.BASE62, "2", "1")) + "-DOMAINPATH"
 
-type scope struct {
+type scheme struct {
 	ids.Domain
-	visibility ids.DomainScopeVisibility
-	format     ids.DomainScopeFormat
+	visibility ids.SchemeVisibility
+	format     ids.SchemeFormat
 }
 
 func KeyExtractor(entity ...interface{}) (interface{}, bool) {
 	if len(entity) > 0 {
-		if domain, ok := entity[0].(ids.DomainScope); ok {
+		if domain, ok := entity[0].(ids.Scheme); ok {
 			return base62.Encode(domain.Id()), true
 		}
 	}
 	return nil, false
 }
 
-func Await(cres chan ids.DomainScope, cerr chan error) (result ids.DomainScope, err error) {
+func Await(cres chan ids.Scheme, cerr chan error) (result ids.Scheme, err error) {
 	if cres == nil || cerr == nil {
 		return nil, fmt.Errorf("Await Failed: channels are undefined")
 	}
@@ -71,13 +73,13 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		return nil, fmt.Errorf("Empty id is invalid")
 	}
 
-	visibility, err := domainscopevisibility.Parse(json["visibility"].(string))
+	visibility, err := schemevisibility.Parse(json["visibility"].(string))
 
 	if err != nil {
 		return nil, err
 	}
 
-	format, err := domainscopeformat.Parse(json["format"].(string))
+	format, err := schemeformat.Parse(json["format"].(string))
 
 	if err != nil {
 		return nil, err
@@ -89,7 +91,7 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		}
 	*/
 
-	return NewDomainScope(
+	return NewScheme(
 		id,
 		toString(json, "name"),
 		toString(json, "description"),
@@ -98,18 +100,19 @@ func unmarshalJSON(unmarshalContext context.Context, json map[string]interface{}
 		toDomainInfo(unmarshalContext, id, json["domainInfo"].(map[string]interface{})))
 }
 
-func NewDomainScope(id []byte, name string, description string, visibility ids.DomainScopeVisibility, format ids.DomainScopeFormat, info map[interface{}]interface{}) (ids.DomainScope, error) {
+func NewScheme(id []byte, name string, description string, visibility ids.SchemeVisibility, format ids.SchemeFormat, info map[interface{}]interface{}) (ids.Scheme, error) {
 
 	info["name"] = name
 	info["description"] = description
 
-	base, err := domain.New(nil, id, nil, 0, versiontype.UNVERSIONED, info)
+	base, err := domain.New(nil, id, nil, 0, versiontype.UNVERSIONED, false, false, info)
 
+	//fmt.Printf("base id=%v, scheme=%v\n", base.Id(), base.SchemeId())
 	if err != nil {
 		return nil, err
 	}
 
-	return &scope{
+	return &scheme{
 		Domain:     base,
 		visibility: visibility,
 		format:     format}, nil
@@ -121,7 +124,7 @@ var extensionBit byte = (1 << 6)
 func ToId(base byte, extension []byte) ([]byte, error) {
 
 	if base > 61 {
-		return nil, errors.New("base too Long: scope id base must be < 61")
+		return nil, errors.New("base too Long: scheme id base must be < 61")
 	}
 
 	if extension == nil {
@@ -131,7 +134,7 @@ func ToId(base byte, extension []byte) ([]byte, error) {
 	var extensionLen = len(extension)
 
 	if extensionLen > 255 {
-		return nil, errors.New("Id too Long: scope id extension binary length must be < 255")
+		return nil, errors.New("Id too Long: scheme id extension binary length must be < 255")
 	}
 
 	var baseSlice []byte
@@ -179,15 +182,15 @@ func MustDecodeId(encoderType encodertype.EncoderType, base string, extension st
 	return id
 }
 
-func (this *scope) Visibility() ids.DomainScopeVisibility {
+func (this *scheme) Visibility() ids.SchemeVisibility {
 	return this.visibility
 }
 
-func (this *scope) Format() ids.DomainScopeFormat {
+func (this *scheme) Format() ids.SchemeFormat {
 	return this.format
 }
 
-func (this *scope) RegisterResolvers() error {
+func (this *scheme) RegisterResolvers() error {
 	resolverInfos := this.InfoValue("resolverInfo").([]resolvers.ResolverInfo)
 	var errs = make([]error, 0)
 
@@ -224,7 +227,7 @@ func toString(json map[string]interface{}, field string) string {
 
 var fileResolverDomainId = domain.MustDecodeId(encodertype.BASE62, "T", "0", uint32(0), uint(0), versiontype.SEMANTIC)
 
-func toDomainInfo(infoContext context.Context, scopeId []byte, infoIn map[string]interface{}) map[interface{}]interface{} {
+func toDomainInfo(infoContext context.Context, schemeId []byte, infoIn map[string]interface{}) map[interface{}]interface{} {
 
 	infoOut := make(map[interface{}]interface{})
 
@@ -284,7 +287,7 @@ func toDomainInfo(infoContext context.Context, scopeId []byte, infoIn map[string
 							}
 						}
 
-						infoMap["scopeId"] = scopeId
+						infoMap["schemeId"] = schemeId
 						resolverInfosOut[index] = resolvers.NewResolverInfo(resolverType,
 							[]ids.TypeIdentifier{domainEntityType}, []ids.Domain{},
 							domain.KeyExtractor, infoMap)

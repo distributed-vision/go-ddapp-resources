@@ -10,7 +10,7 @@ import (
 )
 
 type idTest struct {
-	scopeId     []byte
+	schemeId    []byte
 	idRoot      []byte
 	incarnation *uint32
 	crcLength   uint
@@ -52,7 +52,7 @@ var idTests = []idTest{
 func TestDomainIdFormatting(t *testing.T) {
 
 	for _, test := range idTests {
-		id, err := ToId(test.scopeId, test.idRoot, test.incarnation, test.crcLength, test.versionType)
+		id, err := ToId(test.schemeId, test.idRoot, test.incarnation, test.crcLength, test.versionType, false, false)
 
 		if err != nil {
 			t.Errorf("TestDomainIdFormatting: ToId failed with err %s:", err)
@@ -62,12 +62,12 @@ func TestDomainIdFormatting(t *testing.T) {
 			t.Errorf("TestDomainIdFormatting: ToId failed expected %s: got %s", test.encodedId, base62.Encode(id))
 		}
 
-		if !bytes.Equal(ScopeId(id), test.scopeId) {
-			t.Errorf("TestDomainIdFormatting: ToId failed expected scopeId %v: got %v", test.scopeId, ScopeId(id))
+		if !bytes.Equal(SchemeId(id), test.schemeId) {
+			t.Errorf("TestDomainIdFormatting: ToId failed expected schemeId %v: got %v", test.schemeId, SchemeId(id))
 		}
 
-		if !bytes.Equal(test.idRoot, IdRootValue(id)) {
-			t.Errorf("TestDomainIdFormatting: ToId failed expected idRoot %v: got %v", test.idRoot, IdRootValue(id))
+		if !bytes.Equal(test.idRoot, IdRoot(id)) {
+			t.Errorf("TestDomainIdFormatting: ToId failed expected idRoot %v: got %v", test.idRoot, IdRoot(id))
 		}
 
 		if test.incarnation == nil {
@@ -110,8 +110,8 @@ func TestDomainIdFormatting(t *testing.T) {
 			t.Errorf("TestDomainIdFormatting: ToId failed expected %s: got %s", test.encodedId, domain.String())
 		}
 
-		if !bytes.Equal(domain.ScopeId(), test.scopeId) {
-			t.Errorf("TestDomainIdFormatting: ToId failed expected scopeId %v: got %v", test.scopeId, domain.ScopeId())
+		if !bytes.Equal(domain.SchemeId(), test.schemeId) {
+			t.Errorf("TestDomainIdFormatting: ToId failed expected schemeId %v: got %v", test.schemeId, domain.SchemeId())
 		}
 
 		if !bytes.Equal(test.idRoot, domain.IdRoot()) {
@@ -145,14 +145,14 @@ func TestDomainIdFormatting(t *testing.T) {
 func TestDomainAccessors(t *testing.T) {
 
 	for _, test := range idTests {
-		domain, err := New(test.scopeId, test.idRoot, test.incarnation, test.crcLength, test.versionType)
+		domain, err := New(test.schemeId, test.idRoot, test.incarnation, test.crcLength, test.versionType, false, false)
 
 		if err != nil {
 			t.Errorf("TestDomainAccessors: New failed with err %s:", err)
 		}
 
-		if !bytes.Equal(domain.ScopeId(), test.scopeId) {
-			t.Errorf("TestDomainAccessors: domain.ScopeId failed expected %v: got %v", test.scopeId, domain.ScopeId())
+		if !bytes.Equal(domain.SchemeId(), test.schemeId) {
+			t.Errorf("TestDomainAccessors: domain.SchemeId failed expected %v: got %v", test.schemeId, domain.SchemeId())
 		}
 
 		if !bytes.Equal(domain.IdRoot(), test.idRoot) {
@@ -179,14 +179,14 @@ func TestDomainAccessors(t *testing.T) {
 func TestWithIncarnation(t *testing.T) {
 
 	for _, test := range idTests {
-		root, err := New(test.scopeId, test.idRoot, nil, 0, test.versionType)
+		root, err := New(test.schemeId, test.idRoot, nil, 0, test.versionType, false, false)
 
 		if err != nil {
 			t.Errorf("TestWithIncarnation: New failed with err %s:", err)
 		}
 
-		if !bytes.Equal(root.ScopeId(), test.scopeId) {
-			t.Errorf("TestWithIncarnation: domain.ScopeId failed expected %v: got %v", test.scopeId, root.ScopeId())
+		if !bytes.Equal(root.SchemeId(), test.schemeId) {
+			t.Errorf("TestWithIncarnation: domain.SchemeId failed expected %v: got %v", test.schemeId, root.SchemeId())
 		}
 
 		if !bytes.Equal(root.IdRoot(), test.idRoot) {

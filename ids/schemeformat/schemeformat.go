@@ -1,4 +1,4 @@
-package domainscopeformat
+package schemeformat
 
 import (
 	"errors"
@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	FIXED ids.DomainScopeFormat = iota
+	FIXED ids.SchemeFormat = iota
 	LV
 )
 
-func Parse(format string) (ids.DomainScopeFormat, error) {
+func Parse(format string) (ids.SchemeFormat, error) {
 	switch strings.ToUpper(format) {
 	case "FIXED":
 		return FIXED, nil

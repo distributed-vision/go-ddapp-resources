@@ -21,7 +21,7 @@ var publicTypeVersion = version.SemanticVersion{Major: 0, Minor: 0, Patch: 1}
 var PublicType = types.MustNewId(publictypeid.ResolverDomain, []byte("LocalResolver"), &publicTypeVersion)
 
 func init() {
-	mappings.Add(resolverType, PublicType, nil, nil)
+	mappings.Map(context.Background(), resolverType, PublicType)
 	resolvers.ResisterNewFactoryFunction(PublicType, NewResolverFactory)
 }
 

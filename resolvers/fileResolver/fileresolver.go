@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"reflect"
+	"sync"
 
 	"github.com/distributed-vision/go-resources/encoding/encodertype"
 	"github.com/distributed-vision/go-resources/ids"
@@ -32,13 +33,14 @@ type fileResolver struct {
 }
 
 var resolverMap map[string]*fileResolver = make(map[string]*fileResolver)
+var resolverMapMutex = &sync.Mutex{}
 var resolverType ids.TypeIdentifier = gotypeid.IdOf(reflect.TypeOf(fileResolver{}))
 var publicTypeVersion = version.New(0, 0, 1)
 
 var PublicType = types.MustNewId(publictypeid.ResolverDomain, []byte("FileResolver"), publicTypeVersion)
 
 func init() {
-	mappings.Add(resolverType, PublicType, nil, nil)
+	mappings.Map(context.Background(), resolverType, PublicType)
 	resolvers.ResisterNewFactoryFunction(PublicType, NewResolverFactory)
 }
 
@@ -88,6 +90,8 @@ func (this *factory) ResolverInfo() resolvers.ResolverInfo {
 }
 
 func New(locator string, resolverInfo resolvers.ResolverInfo) (resolvers.Resolver, error) {
+	resolverMapMutex.Lock()
+	defer resolverMapMutex.Unlock()
 	resolver, ok := resolverMap[locator]
 
 	if ok {

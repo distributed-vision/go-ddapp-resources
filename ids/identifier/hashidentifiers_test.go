@@ -52,8 +52,8 @@ func TestCreateXX64Id(t *testing.T) {
 		t.Errorf("TestDomainWithCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
 	}
 
-	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
-		t.Errorf("TestDomainWithCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	if !bytes.Equal(id.SchemeId(), domain.SchemeId()) {
+		t.Errorf("TestDomainWithCrc Failed: id.SchemeId != domain.SchemeId: expected: '%s' got '%s'", id.SchemeId(), domain.SchemeId())
 	}
 
 	if id.Checksum() != nil {
@@ -74,13 +74,28 @@ func TestCreateXX64IdWithCrc(t *testing.T) {
 
 	crc8d, err := identitydomain.WithCrc(domain, 8)
 
+	if err != nil {
+		t.Errorf("TestCreateXX64IdWithCrc: identitydomain.WithCrc failed: %s", err)
+		return
+	}
+
 	value := random.RandomBytes(64)
 	hash := xxhash.Checksum64S(value, 0xCAFEBABE)
 	idbuf := make([]byte, 8)
 
 	id, err := identifier.New(domain, hton.U64(idbuf, 0, hash))
 
+	if err != nil {
+		t.Errorf("TestCreateXX64IdWithCrc: identifier.New failed: %s", err)
+		return
+	}
+
 	crcid, err := identifier.New(crc8d, idbuf)
+
+	if err != nil {
+		t.Errorf("TestCreateXX64IdWithCrc: identifier.New failed: %s", err)
+		return
+	}
 
 	cs := crc8.Checksum(crcid.Value()[:len(crcid.Value())-1], crc8Table)
 
@@ -90,8 +105,8 @@ func TestCreateXX64IdWithCrc(t *testing.T) {
 	if !bytes.Equal(id.Id(), idbuf) {
 		t.Errorf("TestCreateXX64IdWithCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
 	}
-	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
-		t.Errorf("TestCreateXX64IdWithCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	if !bytes.Equal(id.SchemeId(), domain.SchemeId()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: id.SchemeId != domain.SchemeId: expected: '%s' got '%s'", id.SchemeId(), domain.SchemeId())
 	}
 	if id.Checksum() != nil {
 		t.Errorf("TestCreateXX64IdWithCrc Failed: unexpected checksum")
@@ -113,8 +128,8 @@ func TestCreateXX64IdWithCrc(t *testing.T) {
 		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.Id: expected: '%s' got '%s'", idbuf, crcid.Id())
 	}
 
-	if !bytes.Equal(crcid.ScopeId(), domain.ScopeId()) {
-		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.ScopeId != domain.ScopeId: expected: '%s' got '%s'", crcid.ScopeId(), domain.ScopeId())
+	if !bytes.Equal(crcid.SchemeId(), domain.SchemeId()) {
+		t.Errorf("TestCreateXX64IdWithCrc Failed: crcid.SchemeId != domain.SchemeId: expected: '%s' got '%s'", crcid.SchemeId(), domain.SchemeId())
 	}
 
 	if ntoh.U8(crcid.Checksum(), 0) != cs {
@@ -156,8 +171,8 @@ func TestCreateXX64IdWithIncarnationAndCrc(t *testing.T) {
 	if !bytes.Equal(id.Id(), idbuf) {
 		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.Id: expected: '%s' got '%s'", idbuf, id.Id())
 	}
-	if !bytes.Equal(id.ScopeId(), domain.ScopeId()) {
-		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.ScopeId != domain.ScopeId: expected: '%s' got '%s'", id.ScopeId(), domain.ScopeId())
+	if !bytes.Equal(id.SchemeId(), domain.SchemeId()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: id.SchemeId != domain.SchemeId: expected: '%s' got '%s'", id.SchemeId(), domain.SchemeId())
 	}
 	if id.Checksum() != nil {
 		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: unexpected checksum: %v", id.Checksum())
@@ -179,8 +194,8 @@ func TestCreateXX64IdWithIncarnationAndCrc(t *testing.T) {
 		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.Id: expected: '%s' got '%s'", idbuf, crcid.Id())
 	}
 
-	if !bytes.Equal(crcid.ScopeId(), domain.ScopeId()) {
-		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.ScopeId != domain.ScopeId: expected: '%s' got '%s'", crcid.ScopeId(), domain.ScopeId())
+	if !bytes.Equal(crcid.SchemeId(), domain.SchemeId()) {
+		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.SchemeId != domain.SchemeId: expected: '%s' got '%s'", crcid.SchemeId(), domain.SchemeId())
 	}
 	if ntoh.U16(crcid.Checksum(), 0) != cs {
 		t.Errorf("TestCreateXX64IdWithIncarnationAndCrc Failed: crcid.Checksum: expected: '%v' got '%v'", cs, ntoh.U16(crcid.Checksum(), 0))

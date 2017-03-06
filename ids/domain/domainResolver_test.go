@@ -4,12 +4,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/distributed-vision/go-resources/init/domainscopeinit"
+	"github.com/distributed-vision/go-resources/init/schemeinit"
 )
 
 func TestMain(m *testing.M) {
 
-	domainscopeinit.Init()
+	schemeinit.Init()
 
 	os.Exit(m.Run())
 }
